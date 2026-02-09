@@ -108,13 +108,17 @@ class ScreenBufferInspector(RpcComponent):
         raise NotImplementedError
 
     def render(self, force_redraw=False) -> None:
-        for rownum, slice_ in enumerate(state.screen_buffer.row_slices):
-            if not slice_:
+        for rownum, row_info in enumerate(state.screen_buffer.row_slices):
+            if not row_info:
                 continue
             if rownum > self.window._ih - 1:
                 break
+            if isinstance(row_info, tuple):
+                slice_, start_addr = row_info
+            else:
+                slice_ = row_info
+                start_addr = state.screen_buffer.start_address + slice_.start
             row = state.screen_buffer.buffer[slice_][: self.window._iw - 8]
-            start_addr = state.screen_buffer.start_address + slice_.start
             self.window.print(f"{start_addr:04X}: ", attr=Color.ADDRESS.attr())
             for i, b in enumerate(row):
                 ac, attr = (
@@ -141,6 +145,7 @@ class ScreenBufferInspector(RpcComponent):
                 state.dlist, dmactl
             ).plan()
             rpc_ranges = [(s, e - s) for s, e in fetch_ranges]
+            debug.log(f"rpc ranges: {rpc_ranges}")
             buffer = self.rpc.read_memory_multiple(rpc_ranges)
             start_address = fetch_ranges[0][0] if fetch_ranges else 0
             state.screen_buffer = ScreenBuffer(

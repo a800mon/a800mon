@@ -125,4 +125,6 @@ class DisplayList:
 class ScreenBuffer:
     start_address: int = 0
     buffer: bytes = b""
-    row_slices: typing.List[slice] = dataclasses.field(default_factory=list)
+    row_slices: typing.List[
+        typing.Union[slice, typing.Tuple[slice, int]]
+    ] = dataclasses.field(default_factory=list)

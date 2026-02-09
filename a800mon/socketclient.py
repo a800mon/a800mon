@@ -485,7 +485,7 @@ class DisplayListMemoryMapper:
             for s, e, off in map_segs:
                 if s <= addr and addr + length <= e:
                     start = off + (addr - s)
-                    row_slices.append(slice(start, start + length))
+                    row_slices.append((slice(start, start + length), addr))
                     break
             else:
                 # row_slices.append(None)
@@ -846,11 +846,15 @@ def main(scr):
             fetch_ranges, row_slices = DisplayListMemoryMapper(dlist, dmactl).plan()
             screen_buf = b"".join(rpc_read_memory(s, e - s) for s, e in fetch_ranges)
 
-            for rownum, slice_ in enumerate(row_slices):
-                if not slice_:
+            for rownum, row_info in enumerate(row_slices):
+                if not row_info:
                     continue
+                if isinstance(row_info, tuple):
+                    slice_, start_addr = row_info
+                else:
+                    slice_ = row_info
+                    start_addr = fetch_ranges[0][0] + slice_.start
                 row = screen_buf[slice_][: wscreen.w]
-                start_addr = fetch_ranges[0][0] + slice_.start
                 wscreen.print(f"{start_addr:04X}: ")
                 for i, b in enumerate(row):
                     ac, attr = atascii_chr(screen_to_atascii(b)) if b > 0 else (" ", 0)

@@ -143,7 +143,7 @@ class DisplayListMemoryMapper:
             for s, e, off in map_segs:
                 if s <= addr and addr + length <= e:
                     start = off + (addr - s)
-                    row_slices.append(slice(start, start + length))
+                    row_slices.append((slice(start, start + length), addr))
                     break
             else:
                 # row_slices.append(None)
