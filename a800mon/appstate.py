@@ -12,6 +12,7 @@ class AppState:
     paused: bool
     emu_ms: int
     reset_ms: int
+    crashed: bool
     dlist_selected_region: int | None
 
 
@@ -23,5 +24,6 @@ state = AppState(
     paused=False,
     emu_ms=0,
     reset_ms=0,
+    crashed=False,
     dlist_selected_region=None,
 )

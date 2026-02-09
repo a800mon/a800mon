@@ -22,6 +22,14 @@ class CommandError(RpcException):
     pass
 
 
+class Status:
+    def __init__(self, paused: bool, emu_ms: int, reset_ms: int, crashed: bool):
+        self.paused = paused
+        self.emu_ms = emu_ms
+        self.reset_ms = reset_ms
+        self.crashed = crashed
+
+
 class Command(enum.Enum):
     PING = "ping"
     DLIST_ADDR = "dlist_addr"
@@ -106,8 +114,10 @@ class RpcClient:
         data = self.call(Command.STATUS)
         if len(data) < 17:
             raise RpcException("STATUS payload too short")
-        paused, emu_ms, reset_ms = struct.unpack("<BQQ", data[:17])
-        return paused, emu_ms, reset_ms
+        paused_byte, emu_ms, reset_ms = struct.unpack("<BQQ", data[:17])
+        paused = bool(paused_byte & 0x01)
+        crashed = bool(paused_byte & 0x80)
+        return Status(paused=paused, emu_ms=emu_ms, reset_ms=reset_ms, crashed=crashed)
 
     def cpu_state(self):
         data = self.call(Command.CPU_STATE)

@@ -33,7 +33,10 @@ class TopBar(VisualRpcComponent):
         reset_hms = _format_hms(state.reset_ms)
         frame = f"{state.monitor_frame_time_ms:3d} ms"
         inv_attr = Color.TOPBAR.attr()
-        segments = [
+        segments = []
+        if getattr(state, "crashed", False):
+            segments.append((" CRASH ", Color.ERROR.attr()))
+        segments += [
             (" UP ", 0),
             (f" {emu_hms} ", inv_attr),
             ("  ", inv_attr),
@@ -66,12 +69,13 @@ class TopBar(VisualRpcComponent):
 
     def update(self):
         try:
-            paused, emu_ms, reset_ms = self.rpc.status()
+            status = self.rpc.status()
         except RpcException:
             return
-        state.paused = bool(paused)
-        state.emu_ms = emu_ms
-        state.reset_ms = reset_ms
+        state.paused = status.paused
+        state.emu_ms = status.emu_ms
+        state.reset_ms = status.reset_ms
+        state.crashed = status.crashed
         if self._status_hook:
             self._status_hook(state.paused)
 
