@@ -1,5 +1,6 @@
 import curses
 import enum
+from .app import Component
 
 
 class Screen:
