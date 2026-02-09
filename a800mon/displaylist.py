@@ -188,9 +188,13 @@ class DisplayListViewer(VisualRpcComponent):
         self._inspect = not self._inspect
         if not self._inspect:
             state.dlist_selected_region = None
+            if getattr(self.window, "_screen", None):
+                self.window._screen.focus(None)
         else:
             if state.dlist_selected_region is None:
                 state.dlist_selected_region = 0
+            if getattr(self.window, "_screen", None):
+                self.window._screen.focus(self.window)
 
     def _move_selection(self, delta):
         if not self._inspect:

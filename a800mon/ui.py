@@ -8,6 +8,7 @@ class Screen:
         self.windows = []
         self.layout_initializer = layout_initializer
         self._initialized = False
+        self.focused = None
         self.scr.nodelay(True)
 
     def initialize(self):
@@ -32,7 +33,18 @@ class Screen:
 
     def add(self, window):
         window.add_to_parent(self.scr)
+        window._screen = self
         self.windows.append(window)
+
+    def focus(self, window):
+        old = self.focused
+        if old is window:
+            return
+        self.focused = window
+        if old:
+            old.redraw()
+        if window:
+            window.redraw()
 
     def refresh(self):
         if not self._initialized:
@@ -141,10 +153,15 @@ class Window:
 
     def redraw(self):
         if self._border:
+            focus_attr = Color.WINDOW_TITLE.attr()
+            if getattr(self, "_screen", None) and self._screen.focused is self:
+                focus_attr = Color.FOCUS.attr()
+            self.outer.attron(focus_attr)
             self.outer.box()
+            self.outer.attroff(focus_attr)
             if self.title:
                 self.outer.addstr(
-                    0, 2, f" {self.title[: self._iw - 6]} ", Color.WINDOW_TITLE.attr()
+                    0, 2, f" {self.title[: self._iw - 6]} ", focus_attr
                 )
         self._dirty = True
 
@@ -275,14 +292,16 @@ class Window:
 def init_color_pairs():
     curses.init_pair(1, curses.COLOR_CYAN, curses.COLOR_BLACK)
     curses.init_pair(2, curses.COLOR_WHITE, curses.COLOR_RED)
+    curses.init_pair(3, curses.COLOR_YELLOW, curses.COLOR_BLACK)
 
 
 class Color(enum.Enum):
     ADDRESS = (1, curses.A_BOLD | curses.A_DIM)
     TEXT = (0, 0)
-    WINDOW_TITLE = (0, curses.A_BOLD | curses.A_DIM)
+    WINDOW_TITLE = (0, curses.A_DIM)
     ERROR = (2, curses.A_BLINK)
     TOPBAR = (0, curses.A_REVERSE)
+    FOCUS = (3, curses.A_BOLD)
 
     def attr(self):
         return curses.color_pair(self.value[0]) | self.value[1]
