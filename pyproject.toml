@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "a800mon"
+version = "0.1.0"
+description = "Atari800 monitor client"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "marcin" }]
+dependencies = []
+
+[project.scripts]
+a800mon = "a800mon.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["a800mon*"]
