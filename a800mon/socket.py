@@ -16,6 +16,7 @@ class SocketCommand(enum.IntEnum):
     STEP = 8
     STEP_VBLANK = 9
     STATUS = 10
+    RUN = 12
 
 
 SUPPORTED_COMMANDS = {
@@ -30,6 +31,7 @@ SUPPORTED_COMMANDS = {
     Command.STEP: 8,
     Command.STEP_VBLANK: 9,
     Command.STATUS: 10,
+    Command.RUN: 12,
 }
 
 

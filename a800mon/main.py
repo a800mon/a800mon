@@ -11,7 +11,7 @@ from .topbar import TopBar
 from .ui import Screen, Window
 
 
-def main(scr):
+def main(scr, socket_path):
     wcpu = Window(title="CPU State")
     wdlist = Window(title="DisplayList")
     wscreen = Window(title="Screen Buffer (ATASCII)")
@@ -24,7 +24,7 @@ def main(scr):
         wscreen.reshape(x=wdlist.x + wdlist.w + 2, y=2, w=60, h=wcpu.y - 3)
         top.reshape(x=0, y=0, w=w, h=1)
 
-    rpc = RpcClient(SocketTransport("/tmp/atari.sock"))
+    rpc = RpcClient(SocketTransport(socket_path))
 
     screen_inspector = ScreenBufferInspector(rpc, wscreen)
     display_list = DisplayListViewer(rpc, wdlist)
@@ -41,9 +41,9 @@ def main(scr):
     app.loop()
 
 
-if __name__ == "__main__":
+def run(socket_path="/tmp/atari.sock"):
     try:
-        curses.wrapper(main)
+        curses.wrapper(lambda scr: main(scr, socket_path))
     except KeyboardInterrupt:
         try:
             curses.endwin()
@@ -64,3 +64,7 @@ if __name__ == "__main__":
         raise
     finally:
         debug.print_log()
+
+
+if __name__ == "__main__":
+    run()

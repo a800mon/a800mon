@@ -62,6 +62,9 @@ class DisplayListMemoryMapper:
             return width_bytes // 2
         return width_bytes
 
+    def bytes_per_line(self, mode):
+        return self._bytes_per_line(mode, self._width_bytes())
+
     def row_ranges(self):
         width = self._width_bytes()
         addr = None
@@ -89,6 +92,35 @@ class DisplayListMemoryMapper:
 
             n = self._bytes_per_line(mode, width)
             rows.append((addr, n))
+            addr = (addr + n) & 0xFFFF
+
+        return rows
+
+    def row_ranges_with_modes(self):
+        width = self._width_bytes()
+        addr = None
+        rows = []
+
+        for e in self.dlist.entries:
+            ir = e.command
+            mode = ir & 0x0F
+
+            if mode == 0:
+                continue
+
+            if mode == 1:
+                if ir & 0x40:
+                    break
+                continue
+
+            if ir & 0x40:
+                addr = e.arg
+
+            if addr is None:
+                continue
+
+            n = self._bytes_per_line(mode, width)
+            rows.append((addr, n, mode))
             addr = (addr + n) & 0xFFFF
 
         return rows
