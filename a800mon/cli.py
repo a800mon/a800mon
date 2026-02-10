@@ -1,13 +1,12 @@
 import argparse
-import json
 import os
 import sys
 
-from .atascii import screen_to_atascii
-from .datastructures import CpuState, Memory
+from .datastructures import CpuState
 from .displaylist import (DLPTRS_ADDR, DMACTL_ADDR, DMACTL_HW_ADDR,
                           DisplayListMemoryMapper, decode_displaylist)
 from .main import run as run_monitor
+from .memory import dump_memory_human, dump_memory_json, dump_memory_raw
 from .rpc import Command, RpcClient
 from .socket import SocketTransport
 
@@ -287,29 +286,12 @@ def _cmd_readmem(args):
     addr = _parse_hex(args.addr)
     length = _parse_hex(args.length)
     data = _rpc(args.socket).read_memory(addr, length)
-    if args.columns is not None and (args.raw or args.json):
-        raise SystemExit("--columns is only valid for formatted output")
-    if args.raw:
-        if args.atascii:
-            data = bytes(screen_to_atascii(b) & 0xFF for b in data)
-        if data:
-            sys.stdout.buffer.write(data)
-        return 0
-    if args.json:
-        if args.atascii:
-            data = bytes(screen_to_atascii(b) & 0xFF for b in data)
-        payload = {"address": addr, "buffer": list(data)}
-        sys.stdout.write(json.dumps(payload) + "\n")
-        return 0
-    mem = Memory(start=addr, length=length, buffer=data)
-    sys.stdout.write(
-        mem.format(
-            use_atascii=args.atascii,
-            columns=args.columns,
-            show_hex=not args.nohex,
-            show_ascii=not args.noascii,
-        )
-        + "\n"
+    _dump_memory(
+        address=addr,
+        length=length,
+        data=data,
+        args=args,
+        columns=args.columns,
     )
     return 0
 
@@ -339,30 +321,44 @@ def _cmd_screen(args):
         raise SystemExit(f"Segment out of range (1-{len(segments)})")
     start, end, mode = segments[idx]
     length = end - start
-    if args.columns is not None and (args.raw or args.json):
-        raise SystemExit("--columns is only valid for formatted output")
     data = rpc.read_memory(start, length)
-    if args.raw:
-        if args.atascii:
-            data = bytes(screen_to_atascii(b) & 0xFF for b in data)
-        if data:
-            sys.stdout.buffer.write(data)
-        return 0
-    if args.json:
-        if args.atascii:
-            data = bytes(screen_to_atascii(b) & 0xFF for b in data)
-        payload = {"address": start, "buffer": list(data)}
-        sys.stdout.write(json.dumps(payload) + "\n")
-        return 0
     columns = args.columns
     if columns is None:
         mapper = DisplayListMemoryMapper(dlist, dmactl)
         default_cols = mapper.bytes_per_line(mode)
         if default_cols:
             columns = default_cols
-    mem = Memory(start=start, length=length, buffer=data)
+    _dump_memory(
+        address=start,
+        length=length,
+        data=data,
+        args=args,
+        columns=columns,
+    )
+    return 0
+
+
+def _dump_memory(address, length, data, args, columns):
+    if columns is not None and (args.raw or args.json):
+        raise SystemExit("--columns is only valid for formatted output")
+
+    if args.raw:
+        raw = dump_memory_raw(data, use_atascii=args.atascii)
+        if raw:
+            sys.stdout.buffer.write(raw)
+        return
+
+    if args.json:
+        sys.stdout.write(
+            dump_memory_json(address, data, use_atascii=args.atascii) + "\n"
+        )
+        return
+
     sys.stdout.write(
-        mem.format(
+        dump_memory_human(
+            address=address,
+            length=length,
+            buffer=data,
             use_atascii=args.atascii,
             columns=columns,
             show_hex=not args.nohex,
@@ -370,7 +366,6 @@ def _cmd_screen(args):
         )
         + "\n"
     )
-    return 0
 
 
 def _print_cpu_state(rpc):

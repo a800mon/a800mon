@@ -29,6 +29,8 @@ This repository contains `a800mon`, a curses-based monitor UI and CLI for Atari8
 - Generate compact code, without necessary branches
 - Do not generate sanity checks where not requried
 - Avoid `isinstance()` checks in loops; prefer duck typing
+- DO NOT REPEAT
+- KEEP IT SIMPLE STUPID
 
 ## Testing / Sanity Checks
 - Basic compile check: `python3 -m py_compile a800mon/*.py`

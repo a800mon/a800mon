@@ -1,9 +1,6 @@
 import dataclasses
 import typing
 
-from .atascii import ATASCII, screen_to_atascii
-
-
 @dataclasses.dataclass
 class CpuState:
     xpos: int = 0
@@ -198,49 +195,3 @@ class ScreenBuffer:
             else:
                 return b""
         return b"".join(parts)
-
-
-@dataclasses.dataclass
-class Memory:
-    start: int
-    length: int
-    buffer: bytes
-
-    BYTES_PER_LINE = 16
-
-    def __repr__(self) -> str:
-        return self.format()
-
-    def format(
-        self,
-        use_atascii: bool = False,
-        columns: int | None = None,
-        show_hex: bool = True,
-        show_ascii: bool = True,
-    ) -> str:
-        lines = []
-        length = max(0, int(self.length))
-        per_line = self.BYTES_PER_LINE
-        if columns is not None:
-            per_line = max(1, int(columns))
-        for offset in range(0, length, per_line):
-            addr = (self.start + offset) & 0xFFFF
-            chunk = self.buffer[offset: offset + per_line]
-            parts = [f"{addr:04X}:"]
-            if show_hex:
-                hex_width = per_line * 3 - 1
-                hex_bytes = " ".join(
-                    f"{b:02X}" for b in chunk).ljust(hex_width)
-                parts.append(hex_bytes)
-            if show_ascii:
-                if use_atascii:
-                    ascii_bytes = "".join(
-                        ATASCII[screen_to_atascii(b) & 0x7F] for b in chunk
-                    )
-                else:
-                    ascii_bytes = "".join(
-                        chr(b) if 32 <= b <= 126 else "." for b in chunk
-                    )
-                parts.append(ascii_bytes)
-            lines.append("  ".join(parts))
-        return "\n".join(lines)
