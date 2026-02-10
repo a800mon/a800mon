@@ -284,7 +284,7 @@ def _cmd_history(args):
     entries = _rpc(args.socket).history()
     if args.count is not None:
         n = max(0, int(args.count))
-        entries = entries[-n:] if n else []
+        entries = entries[:n] if n else []
     for idx, entry in enumerate(entries, start=1):
         try:
             dis = disasm_6502_one(entry.pc, entry.opbytes)

@@ -30,6 +30,8 @@ class HistoryViewer(VisualRpcComponent):
         self._entries = []
         self._can_disasm = True
         self._last_title_pc = None
+        self._next_pc = None
+        self._next_opbytes = b""
 
     def update(self):
         now = time.time()
@@ -37,6 +39,9 @@ class HistoryViewer(VisualRpcComponent):
             return
         try:
             self._entries = self.rpc.history()
+            pc = state.cpu.pc & 0xFFFF
+            self._next_pc = pc
+            self._next_opbytes = self.rpc.read_memory(pc, 3)
             self._last_update = now
         except RpcException:
             pass
@@ -51,15 +56,25 @@ class HistoryViewer(VisualRpcComponent):
         if self.window._ih <= 0:
             return
 
-        rows = self._entries[-self.window._ih:]
-        for idx, entry in enumerate(rows):
-            rev_attr = curses.A_REVERSE if idx == 0 else 0
+        # Synthetic first line: next instruction at current PC.
+        next_pc = state.cpu.pc & 0xFFFF
+        next_bytes = self._next_opbytes if self._next_pc == next_pc else b""
+        raw_text, asm_text = self._format_disasm(next_pc, next_bytes)
+        self._print_row(next_pc, raw_text, asm_text, curses.A_REVERSE)
+        _, y_before_fill = self.window.cursor
+        self.window.fill_to_eol(attr=curses.A_REVERSE)
+        _, y_after_fill = self.window.cursor
+        if y_after_fill == y_before_fill:
+            self.window.newline()
+
+        if self.window._ih <= 1:
+            return
+
+        rows = self._entries[: self.window._ih - 1]
+        for entry in rows:
             raw_text, asm_text = self._format_disasm(entry.pc, entry.opbytes)
-            self.window.print(f"{entry.pc:04X}:", attr=Color.ADDRESS.attr() | rev_attr)
-            self.window.print(" ", attr=rev_attr)
-            self.window.print(f"{raw_text:<8} ", attr=rev_attr)
-            self._print_asm(asm_text, rev_attr)
-            self.window.clear_to_eol(inverse=(idx == 0))
+            self._print_row(entry.pc, raw_text, asm_text, 0)
+            self.window.clear_to_eol()
             self.window.newline()
         self.window.clear_to_bottom()
 
@@ -92,6 +107,14 @@ class HistoryViewer(VisualRpcComponent):
         self.window.print(operand[:start], attr=rev_attr)
         self.window.print(operand[start:end], attr=Color.ADDRESS.attr() | rev_attr)
         self.window.print(operand[end:], attr=rev_attr)
+
+    def _print_row(self, pc: int, raw_text: str, asm_text: str, rev_attr: int, prefix: str = ""):
+        if prefix:
+            self.window.print(prefix, attr=rev_attr)
+        self.window.print(f"{pc:04X}:", attr=Color.ADDRESS.attr() | rev_attr)
+        self.window.print(" ", attr=rev_attr)
+        self.window.print(f"{raw_text:<8} ", attr=rev_attr)
+        self._print_asm(asm_text, rev_attr)
 
 
 def _find_hex_addr_span(text: str):
