@@ -43,7 +43,7 @@ def main(scr, socket_path):
     bottom = Window(border=False)
 
     screen_inspector = ScreenBufferInspector(rpc, wscreen)
-    history_view = HistoryViewer(rpc, whistory)
+    history_view = HistoryViewer(rpc, whistory, reverse_order=True)
     display_list = DisplayListViewer(rpc, wdlist)
     cpu = CpuStateViewer(rpc, wcpu)
     topbar = TopBar(rpc, top)

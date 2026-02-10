@@ -25,6 +25,7 @@ FLOW_MNEMONICS = {
 class HistoryViewer(VisualRpcComponent):
     def __init__(self, *args, **kwargs):
         self._update_interval = kwargs.pop("update_interval", 0.05)
+        self._reverse_order = bool(kwargs.pop("reverse_order", False))
         super().__init__(*args, **kwargs)
         self._last_update = 0.0
         self._entries = []
@@ -55,28 +56,33 @@ class HistoryViewer(VisualRpcComponent):
         self.window.cursor = 0, 0
         if self.window._ih <= 0:
             return
+        self.window.clear_to_bottom()
+        self.window.cursor = 0, 0
 
-        # Synthetic first line: next instruction at current PC.
         next_pc = state.cpu.pc & 0xFFFF
         next_bytes = self._next_opbytes if self._next_pc == next_pc else b""
         raw_text, asm_text = self._format_disasm(next_pc, next_bytes)
-        self._print_row(next_pc, raw_text, asm_text, curses.A_REVERSE)
-        _, y_before_fill = self.window.cursor
-        self.window.fill_to_eol(attr=curses.A_REVERSE)
-        _, y_after_fill = self.window.cursor
-        if y_after_fill == y_before_fill:
-            self.window.newline()
 
-        if self.window._ih <= 1:
-            return
+        if self._reverse_order:
+            rows = list(reversed(self._entries[: max(0, self.window._ih - 1)]))
+            for entry in rows:
+                raw_row, asm_row = self._format_disasm(entry.pc, entry.opbytes)
+                self._print_row(entry.pc, raw_row, asm_row, 0)
+                self._finish_row(inverse=False)
+            self.window.cursor = (0, self.window._ih - 1)
+            self._print_row(next_pc, raw_text, asm_text, curses.A_REVERSE)
+            self.window.fill_to_eol(attr=curses.A_REVERSE)
+        else:
+            # Synthetic first line: next instruction at current PC.
+            self._print_row(next_pc, raw_text, asm_text, curses.A_REVERSE)
+            self._finish_row(inverse=True)
 
-        rows = self._entries[: self.window._ih - 1]
-        for entry in rows:
-            raw_text, asm_text = self._format_disasm(entry.pc, entry.opbytes)
-            self._print_row(entry.pc, raw_text, asm_text, 0)
-            self.window.clear_to_eol()
-            self.window.newline()
-        self.window.clear_to_bottom()
+            if self.window._ih > 1:
+                rows = self._entries[: self.window._ih - 1]
+                for entry in rows:
+                    raw_row, asm_row = self._format_disasm(entry.pc, entry.opbytes)
+                    self._print_row(entry.pc, raw_row, asm_row, 0)
+                    self._finish_row(inverse=False)
 
     def _format_disasm(self, pc: int, opbytes: bytes) -> tuple[str, str]:
         if self._can_disasm:
@@ -115,6 +121,16 @@ class HistoryViewer(VisualRpcComponent):
         self.window.print(" ", attr=rev_attr)
         self.window.print(f"{raw_text:<8} ", attr=rev_attr)
         self._print_asm(asm_text, rev_attr)
+
+    def _finish_row(self, inverse: bool):
+        _, y_before = self.window.cursor
+        if inverse:
+            self.window.fill_to_eol(attr=curses.A_REVERSE)
+        else:
+            self.window.clear_to_eol()
+        _, y_after = self.window.cursor
+        if y_after == y_before:
+            self.window.newline()
 
 
 def _find_hex_addr_span(text: str):
