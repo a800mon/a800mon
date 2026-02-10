@@ -9,9 +9,9 @@ description = "Atari800 monitor client"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
-authors = [{ name = "marcin" }]
+authors = [{ name = "Marcin Nowak" }]
 dependencies = [
-    "dsm==0.5.3",
+    "py65",
 ]
 
 [project.scripts]

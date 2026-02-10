@@ -3,6 +3,7 @@ import os
 import sys
 
 from .datastructures import CpuState
+from .disasm import disasm_6502
 from .displaylist import (DLPTRS_ADDR, DMACTL_ADDR, DMACTL_HW_ADDR,
                           DisplayListMemoryMapper, decode_displaylist)
 from .main import run as run_monitor
@@ -113,6 +114,11 @@ def _parse_args(argv):
         help="Hide ASCII column in formatted output.",
     )
     readmem.set_defaults(func=_cmd_readmem)
+
+    disasm = subparsers.add_parser("disasm", help="Disassemble 6502 memory.")
+    disasm.add_argument("addr", help="Address (hex: 0xNNNN, $NNNN, NNNN).")
+    disasm.add_argument("length", help="Length (hex: 0xNNNN, $NNNN, NNNN).")
+    disasm.set_defaults(func=_cmd_disasm)
 
     screen = subparsers.add_parser(
         "screen", help="Dump screen memory segment or list segments."
@@ -293,6 +299,15 @@ def _cmd_readmem(args):
         args=args,
         columns=args.columns,
     )
+    return 0
+
+
+def _cmd_disasm(args):
+    addr = _parse_hex(args.addr)
+    length = _parse_hex(args.length)
+    data = _rpc(args.socket).read_memory(addr, length)
+    for line in disasm_6502(addr, data):
+        sys.stdout.write(line + "\n")
     return 0
 
 

@@ -126,16 +126,10 @@ class ScreenBufferInspector(VisualRpcComponent):
         for row_info in state.screen_buffer.row_slices:
             if printed_rows >= self.window._ih:
                 break
-            if isinstance(row_info, tuple):
-                if isinstance(row_info[0], slice):
-                    start_addr = row_info[1]
-                    length = row_info[0].stop - row_info[0].start
-                else:
-                    start_addr = row_info[0]
-                    length = row_info[1]
-            else:
-                start_addr = state.screen_buffer.start_address + row_info.start
-                length = row_info.stop - row_info.start
+            parsed = _parse_row_info(row_info, state.screen_buffer.start_address)
+            if not parsed:
+                continue
+            start_addr, length = parsed
             if active_seg is not None:
                 start, end, _mode = active_seg
                 if not (start <= start_addr < end):
@@ -215,3 +209,24 @@ def _render_char(value: int, use_atascii: bool):
     if 32 <= v <= 126:
         return chr(v), 0
     return ".", 0
+
+
+def _parse_row_info(row_info, base_addr: int):
+    if row_info is None:
+        return None
+    if isinstance(row_info, tuple):
+        if len(row_info) < 2:
+            return None
+        first, second = row_info[0], row_info[1]
+        if isinstance(first, slice):
+            if first.start is None or first.stop is None or second is None:
+                return None
+            return int(second), int(first.stop - first.start)
+        if first is None or second is None:
+            return None
+        return int(first), int(second)
+    if isinstance(row_info, slice):
+        if row_info.start is None or row_info.stop is None:
+            return None
+        return int(base_addr + row_info.start), int(row_info.stop - row_info.start)
+    return None
