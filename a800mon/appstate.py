@@ -27,6 +27,8 @@ class AppStateData:
     use_atascii: bool
     disassembly_enabled: bool
     disassembly_addr: int
+    input_focus: bool
+    input_buffer: str
     dmactl: int
 
 
@@ -45,6 +47,8 @@ _state = AppStateData(
     use_atascii=True,
     disassembly_enabled=False,
     disassembly_addr=0,
+    input_focus=False,
+    input_buffer="",
     dmactl=0,
 )
 
@@ -66,6 +70,12 @@ class StateStore:
 
     def set_disassembly_addr(self, addr: int):
         self._s.disassembly_addr = addr & 0xFFFF
+
+    def set_input_focus(self, enabled: bool):
+        self._s.input_focus = enabled
+
+    def set_input_buffer(self, value: str):
+        self._s.input_buffer = str(value)
 
     def set_dlist_selected_region(self, idx: int | None):
         self._s.dlist_selected_region = idx

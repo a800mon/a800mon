@@ -20,6 +20,9 @@ class Actions(enum.Enum):
     SET_DLIST_INSPECT = enum.auto()
     SET_ATASCII = enum.auto()
     SET_DISASSEMBLY = enum.auto()
+    SET_DISASSEMBLY_ADDR = enum.auto()
+    SET_INPUT_FOCUS = enum.auto()
+    SET_INPUT_BUFFER = enum.auto()
     DLIST_NEXT = enum.auto()
     DLIST_PREV = enum.auto()
     QUIT = enum.auto()
@@ -29,6 +32,7 @@ class ActionDispatcher(Component):
     def __init__(self, rpc):
         self._rpc = rpc
         self._rpc_queue = []
+        self._last_cpu_pc = None
 
     def _call_rpc(self, cmd):
         try:
@@ -94,6 +98,15 @@ class ActionDispatcher(Component):
         if action == Actions.SET_DISASSEMBLY:
             store.set_disassembly_enabled(bool(value))
             return
+        if action == Actions.SET_DISASSEMBLY_ADDR:
+            store.set_disassembly_addr(int(value))
+            return
+        if action == Actions.SET_INPUT_FOCUS:
+            store.set_input_focus(bool(value))
+            return
+        if action == Actions.SET_INPUT_BUFFER:
+            store.set_input_buffer(str(value))
+            return
         if action == Actions.DLIST_NEXT:
             if not state.displaylist_inspect:
                 return
@@ -124,7 +137,10 @@ class ActionDispatcher(Component):
 
     def update_cpu(self, cpu_state):
         store.set_cpu(cpu_state)
-        store.set_disassembly_addr(cpu_state.pc)
+        pc = cpu_state.pc & 0xFFFF
+        if self._last_cpu_pc is None or state.disassembly_addr == self._last_cpu_pc:
+            store.set_disassembly_addr(pc)
+        self._last_cpu_pc = pc
 
     def update_dlist(self, dlist):
         store.set_dlist(dlist, state.dmactl)

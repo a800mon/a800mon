@@ -5,9 +5,10 @@ from .actions import ActionDispatcher, Actions, ShortcutInput
 from .app import App, Component
 from .appstate import AppMode, shortcuts, state
 from .cpustate import CpuStateViewer
-from .disassembly import DisassemblyViewer
+from .disassembly import DisassemblyInputHandler, DisassemblyViewer
 from .displaylist import DisplayListViewer
 from .history import HistoryViewer
+from .inputwidget import AddressInputWidget, InputWidgetManager
 from .rpc import RpcClient
 from .screenbuffer import ScreenBufferInspector
 from .shortcutbar import ShortcutBar
@@ -40,6 +41,7 @@ def main(scr, socket_path):
     wdlist = Window(title="DisplayList")
     wscreen = Window(title="Screen Buffer (ATASCII)")
     wdisasm = Window(title="Disassembly")
+    waddr_input = Window(border=False)
     whistory = Window(title="History")
     top = Window(border=False)
     bottom = Window(border=False)
@@ -53,6 +55,8 @@ def main(scr, socket_path):
     appmode_updater = AppModeUpdater(dispatcher)
     shortcutbar = ShortcutBar(bottom)
     wdisasm.visible = state.disassembly_enabled
+    waddr_input.visible = False
+    waddr_input.reset_cursor_on_refresh = False
 
     def init_screen(scr):
         w, h = scr.size
@@ -90,6 +94,7 @@ def main(scr, socket_path):
                 w=disasm_w,
                 h=wcpu.y - 3,
             )
+            waddr_input.reshape(x=wdisasm.x + 1, y=wdisasm.y + 1, w=6, h=1)
             whistory.reshape(
                 x=wdisasm.x + wdisasm.w + gap,
                 y=2,
@@ -111,6 +116,27 @@ def main(scr, socket_path):
 
     screen = Screen(scr, layout_initializer=init_screen)
     app = App(screen=screen)
+    input_manager = InputWidgetManager(dispatcher, app.rebuild_screen)
+    address_input = AddressInputWidget(
+        waddr_input,
+        color=Color.ADDRESS,
+        on_change=lambda value: (
+            dispatcher.dispatch(Actions.SET_DISASSEMBLY_ADDR, value)
+            if value is not None
+            else None
+        ),
+        on_enter=lambda value: (
+            dispatcher.dispatch(Actions.SET_DISASSEMBLY_ADDR, value)
+            if value is not None
+            else None
+        ),
+    )
+    disasm_input = DisassemblyInputHandler(
+        screen=screen,
+        disasm_window=wdisasm,
+        input_manager=input_manager,
+        address_widget=address_input,
+    )
 
     def build_shortcuts():
         def action(key, label, action):
@@ -181,6 +207,8 @@ def main(scr, socket_path):
 
     input_processor = ShortcutInput(shortcuts, dispatcher)
     app.add_component(dispatcher)
+    app.add_component(input_manager)
+    app.add_component(disasm_input)
     app.add_component(input_processor)
     app.add_component(topbar)
     app.add_component(appmode_updater)
@@ -189,6 +217,7 @@ def main(scr, socket_path):
     app.add_component(display_list)
     app.add_component(screen_inspector)
     app.add_component(disassembly_view)
+    app.add_component(address_input)
     app.add_component(history_view)
 
     build_shortcuts()

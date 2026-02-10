@@ -104,6 +104,7 @@ class Window:
         self.parent = None
         self._screen = None
         self._visible = True
+        self.reset_cursor_on_refresh = True
         self.on_focus = None
         self.on_blur = None
 
@@ -232,7 +233,8 @@ class Window:
         if self._border:
             self.outer.noutrefresh()
         self.inner.noutrefresh()
-        self.cursor = (0, 0)
+        if self.reset_cursor_on_refresh:
+            self.cursor = (0, 0)
 
     def refresh(self):
         self._do_refresh()
