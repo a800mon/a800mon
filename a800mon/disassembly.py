@@ -8,6 +8,7 @@ from .rpc import RpcException
 from .ui import Color
 
 ASM_COMMENT_COL = 18
+FOLLOW_TAG_ID = "follow"
 
 
 class DisassemblyViewer(VisualRpcComponent):
@@ -42,7 +43,7 @@ class DisassemblyViewer(VisualRpcComponent):
 
     def on_address_changed(self, addr: int):
         v = int(addr) & 0xFFFF
-        self._follow = False
+        self._set_follow(False)
         self._current_addr = v
         self._last_state_addr = v
         self._last_addr = None
@@ -195,7 +196,7 @@ class DisassemblyViewer(VisualRpcComponent):
 
     def _manual_set_addr(self, addr: int):
         v = int(addr) & 0xFFFF
-        self._follow = False
+        self._set_follow(False)
         self._current_addr = v
         self._last_state_addr = v
         self._last_addr = None
@@ -290,7 +291,7 @@ class DisassemblyViewer(VisualRpcComponent):
             return False
 
         if ch in (ord("f"), ord("F")):
-            self._follow = not self._follow
+            self._set_follow(not self._follow)
             return True
 
         if ch in (curses.KEY_HOME, 262):
@@ -329,6 +330,10 @@ class DisassemblyViewer(VisualRpcComponent):
 
         self._input_manager.open(self._address_widget, f"{addr:04X}")
         return True
+
+    def _set_follow(self, enabled: bool):
+        self._follow = bool(enabled)
+        self.window.set_tag_active(FOLLOW_TAG_ID, self._follow)
 
     def _print_asm(self, ins: DecodedInstruction, rev_attr: int = 0):
         if not ins.mnemonic:

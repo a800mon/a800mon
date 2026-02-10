@@ -107,6 +107,8 @@ class Window:
         self.reset_cursor_on_refresh = True
         self.on_focus = None
         self.on_blur = None
+        self._tags = []
+        self._tags_by_id = {}
 
     @property
     def visible(self):
@@ -176,15 +178,11 @@ class Window:
 
     def redraw(self):
         if self._border:
-            focus_attr = Color.WINDOW_TITLE.attr()
-            if self._screen is not None and self._screen.focused is self:
-                focus_attr = Color.FOCUS.attr()
+            focus_attr = self._frame_attr()
             self.outer.attron(focus_attr)
             self.outer.box()
             self.outer.attroff(focus_attr)
-            if self.title:
-                self.outer.addstr(
-                    0, 2, f" {self.title[: self._iw - 6]} ", focus_attr)
+            self._draw_title_and_tags(focus_attr)
         self._dirty = True
 
     def set_title(self, title):
@@ -197,16 +195,64 @@ class Window:
         if not self._border or not hasattr(self, "outer"):
             self._dirty = True
             return
-        focus_attr = Color.WINDOW_TITLE.attr()
-        if self._screen is not None and self._screen.focused is self:
-            focus_attr = Color.FOCUS.attr()
+        focus_attr = self._frame_attr()
         self.outer.attron(focus_attr)
         # Rewrite only top border line to avoid full box redraw on title updates.
         self.outer.hline(0, 1, curses.ACS_HLINE, self._iw)
-        if self.title:
-            self.outer.addstr(0, 2, f" {self.title[: self._iw - 6]} ", focus_attr)
+        self._draw_title_and_tags(focus_attr)
         self.outer.attroff(focus_attr)
         self._dirty = True
+
+    def add_tag(self, label: str, tag_id: str | None = None, active: bool = False):
+        if tag_id is None:
+            tag_id = label
+        if tag_id in self._tags_by_id:
+            raise ValueError(f"Duplicate window tag id: {tag_id}")
+        tag = {
+            "id": str(tag_id),
+            "label": str(label),
+            "active": bool(active),
+        }
+        self._tags.append(tag)
+        self._tags_by_id[tag["id"]] = tag
+        self.redraw_title()
+
+    def set_tag_active(self, tag_id: str, active: bool):
+        if tag_id not in self._tags_by_id:
+            raise KeyError(f"Unknown window tag id: {tag_id}")
+        tag = self._tags_by_id[tag_id]
+        new_state = bool(active)
+        if tag["active"] == new_state:
+            return
+        tag["active"] = new_state
+        self.redraw_title()
+
+    def _frame_attr(self):
+        focus_attr = Color.WINDOW_TITLE.attr()
+        if self._screen is not None and self._screen.focused is self:
+            focus_attr = Color.FOCUS.attr()
+        return focus_attr
+
+    def _draw_title_and_tags(self, base_attr):
+        if self.title:
+            self.outer.addstr(0, 2, f" {self.title[: self._iw - 6]} ", base_attr)
+        if not self._tags:
+            return
+
+        _h, w = self.outer.getmaxyx()
+        x = w - 1 - 2  # keep two chars from the right border
+        for tag in reversed(self._tags):
+            label = f" {str(tag['label']).strip()} "
+            tag_w = len(label)
+            start = x - tag_w + 1
+            if start <= 1:
+                break
+            attr = base_attr | (curses.A_REVERSE if tag["active"] else 0)
+            try:
+                self.outer.addstr(0, start, label, attr)
+            except curses.error:
+                break
+            x = start - 1
 
     def reshape(self, x, y, w, h):
         self.x = x

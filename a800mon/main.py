@@ -39,8 +39,11 @@ def main(scr, socket_path):
 
     wcpu = Window(title="CPU State")
     wdlist = Window(title="DisplayList")
-    wscreen = Window(title="Screen Buffer (ATASCII)")
+    wscreen = Window(title="Screen Buffer")
+    wscreen.add_tag("ATASCII", tag_id="atascii", active=True)
+    wscreen.add_tag("ASCII", tag_id="ascii", active=False)
     wdisasm = Window(title="Disassembler")
+    wdisasm.add_tag("FOLLOW", tag_id="follow", active=True)
     waddr_input = Window(border=False)
     whistory = Window(title="History")
     top = Window(border=False)

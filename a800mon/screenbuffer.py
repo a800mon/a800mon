@@ -47,7 +47,7 @@ class ScreenBufferInspector(VisualRpcComponent):
         self._cy = 0
         self._last_update = None
         self._dmactl = 0
-        self._last_use_atascii = state.use_atascii
+        self._last_use_atascii = None
 
     @property
     def cols(self):
@@ -110,11 +110,10 @@ class ScreenBufferInspector(VisualRpcComponent):
         raise NotImplementedError
 
     def render(self, force_redraw=False) -> None:
-        if state.use_atascii != self._last_use_atascii:
+        if self._last_use_atascii != state.use_atascii:
             self._last_use_atascii = state.use_atascii
-            mode = "ATASCII" if state.use_atascii else "ASCII"
-            self.window.title = f"Screen Buffer ({mode})"
-            self.window.redraw()
+            self.window.set_tag_active("atascii", state.use_atascii)
+            self.window.set_tag_active("ascii", not state.use_atascii)
 
         self.window.cursor = 0, 0
         segs = state.dlist.screen_segments(self._dmactl)
