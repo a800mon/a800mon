@@ -24,6 +24,7 @@ class AppStateData:
     dlist_selected_region: int | None
     active_mode: AppMode
     displaylist_inspect: bool
+    use_atascii: bool
     dmactl: int
 
 
@@ -39,6 +40,7 @@ _state = AppStateData(
     dlist_selected_region=None,
     active_mode=AppMode.NORMAL,
     displaylist_inspect=False,
+    use_atascii=True,
     dmactl=0,
 )
 
@@ -51,6 +53,9 @@ class StateStore:
 
     def set_displaylist_inspect(self, enabled: bool):
         self._s.displaylist_inspect = enabled
+
+    def set_use_atascii(self, enabled: bool):
+        self._s.use_atascii = enabled
 
     def set_dlist_selected_region(self, idx: int | None):
         self._s.dlist_selected_region = idx

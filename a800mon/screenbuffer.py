@@ -47,6 +47,7 @@ class ScreenBufferInspector(VisualRpcComponent):
         self._cy = 0
         self._last_update = None
         self._dmactl = 0
+        self._last_use_atascii = state.use_atascii
 
     @property
     def cols(self):
@@ -109,6 +110,12 @@ class ScreenBufferInspector(VisualRpcComponent):
         raise NotImplementedError
 
     def render(self, force_redraw=False) -> None:
+        if state.use_atascii != self._last_use_atascii:
+            self._last_use_atascii = state.use_atascii
+            mode = "ATASCII" if state.use_atascii else "ASCII"
+            self.window.title = f"Screen Buffer ({mode})"
+            self.window.redraw()
+
         segs = state.dlist.screen_segments(self._dmactl)
         active_seg = None
         if state.dlist_selected_region is not None and segs:
@@ -140,9 +147,7 @@ class ScreenBufferInspector(VisualRpcComponent):
             ]
             self.window.print(f"{start_addr:04X}: ", attr=Color.ADDRESS.attr())
             for i, b in enumerate(row):
-                ac, attr = (
-                    atascii_to_curses(screen_to_atascii(b)) if b > 0 else (" ", 0)
-                )
+                ac, attr = _render_char(b, state.use_atascii)
                 self.window.print_char(ac, attr=attr)
             self.window.newline()
         self.window.clear_to_bottom()
@@ -197,3 +202,14 @@ class ScreenBufferInspector(VisualRpcComponent):
             self._last_update = time.time()
         except RpcException:
             pass
+
+
+def _render_char(value: int, use_atascii: bool):
+    if value <= 0:
+        return " ", 0
+    if use_atascii:
+        return atascii_to_curses(screen_to_atascii(value))
+    v = value & 0x7F
+    if 32 <= v <= 126:
+        return chr(v), 0
+    return ".", 0

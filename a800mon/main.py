@@ -99,6 +99,15 @@ def main(scr, socket_path):
             screen.focus(wdlist if new_val else None)
 
         shortcuts.add_global(Shortcut("d", "Toggle DLIST", toggle_dlist))
+        shortcuts.add_global(
+            Shortcut(
+                "a",
+                "ATASCII/ASCII",
+                lambda: dispatcher.dispatch(
+                    Actions.SET_ATASCII, not state.use_atascii
+                ),
+            )
+        )
         shortcuts.add_global(action("q", "Quit", Actions.QUIT))
 
     input_processor = ShortcutInput(shortcuts, dispatcher)

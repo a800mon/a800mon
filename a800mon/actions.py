@@ -18,6 +18,7 @@ class Actions(enum.Enum):
     WARMSTART = enum.auto()
     TERMINATE = enum.auto()
     SET_DLIST_INSPECT = enum.auto()
+    SET_ATASCII = enum.auto()
     DLIST_NEXT = enum.auto()
     DLIST_PREV = enum.auto()
     QUIT = enum.auto()
@@ -85,6 +86,9 @@ class ActionDispatcher(Component):
                 store.set_dlist_selected_region(None)
             elif state.dlist_selected_region is None:
                 store.set_dlist_selected_region(0)
+            return
+        if action == Actions.SET_ATASCII:
+            store.set_use_atascii(bool(value))
             return
         if action == Actions.DLIST_NEXT:
             if not state.displaylist_inspect:
