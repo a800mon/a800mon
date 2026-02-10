@@ -1,7 +1,7 @@
 from .app import VisualRpcComponent
 from .appstate import state, store
 from .datastructures import CpuState
-from .rpc import Command, RpcException
+from .rpc import RpcException
 
 
 class CpuStateViewer(VisualRpcComponent):
@@ -17,13 +17,3 @@ class CpuStateViewer(VisualRpcComponent):
 
     def render(self, force_redraw=False):
         self.window.print_line(repr(state.cpu))
-
-    def handle_input(self, ch):
-        if ch == ord("p"):
-            self.rpc.call(Command.PAUSE)
-        if ch == ord("s"):
-            self.rpc.call(Command.STEP)
-        if ch == ord("v"):
-            self.rpc.call(Command.STEP_VBLANK)
-        if ch == ord("c"):
-            self.rpc.call(Command.CONTINUE)

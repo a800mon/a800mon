@@ -205,9 +205,6 @@ class DisplayListViewer(VisualRpcComponent):
                 elif state.dlist_selected_region >= len(segs):
                     store.set_dlist_selected_region(len(segs) - 1)
 
-    def handle_input(self, ch):
-        return False
-
     def render(self, force_redraw=False):
         if state.displaylist_inspect:
             segs = state.dlist.screen_segments(self._dmactl)

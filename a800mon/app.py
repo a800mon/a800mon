@@ -10,11 +10,13 @@ class Component:
     def update(self):
         pass
 
-    def handle_input(self, ch):
-        return False
-
     def post_render(self):
         pass
+
+
+class InputComponent(Component):
+    def handle_input(self, ch):
+        return False
 
 
 class RpcComponent(Component):
@@ -42,12 +44,15 @@ class App:
         self._screen = screen
         self._components = []
         self._visual_components = []
+        self._input_components = []
 
     def add_component(self, component: Component):
         self._components.append(component)
         if isinstance(component, VisualComponent):
             self._screen.add(component.window)
             self._visual_components.append(component)
+        if isinstance(component, InputComponent):
+            self._input_components.append(component)
 
     def rebuild_screen(self):
         self._screen.rebuild()
@@ -84,7 +89,7 @@ class App:
             self.rebuild_screen()
         if ch == -1:
             return
-        for component in self._components:
+        for component in self._input_components:
             if component.handle_input(ch):
                 return
 

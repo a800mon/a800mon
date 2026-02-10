@@ -1,7 +1,7 @@
 import enum
 import curses
 
-from .app import Component, StopLoop
+from .app import Component, InputComponent, StopLoop
 from .appstate import AppMode, state, store
 from .rpc import Command, RpcException
 
@@ -130,7 +130,7 @@ class ActionDispatcher(Component):
         store.set_frame_time_ms(ms)
 
 
-class ShortcutInput(Component):
+class ShortcutInput(InputComponent):
     def __init__(self, shortcuts, dispatcher):
         self._shortcuts = shortcuts
         self._dispatcher = dispatcher
