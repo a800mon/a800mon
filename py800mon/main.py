@@ -23,18 +23,18 @@ from .ui import Color, Screen, Window
 
 
 class AppModeUpdater(Component):
-    def __init__(self, dispatcher):
-        self._dispatcher = dispatcher
+    def __init__(self):
+        super().__init__()
         self._last_paused = None
 
     async def update(self):
         if self._last_paused is None:
             self._last_paused = state.paused
-            self._dispatcher.dispatch(Actions.SYNC_MODE)
+            self.app.dispatch_action(Actions.SYNC_MODE)
             return True
         if state.paused != self._last_paused:
             self._last_paused = state.paused
-            self._dispatcher.dispatch(Actions.SYNC_MODE)
+            self.app.dispatch_action(Actions.SYNC_MODE)
             return True
         return False
 
@@ -65,8 +65,9 @@ async def main(scr, socket_path):
         caps = await rpc.config()
     except RpcException:
         caps = []
-    dispatcher.update_breakpoints_supported(
-        CAP_MONITOR_BREAKPOINTS in set(caps)
+    dispatcher.dispatch(
+        Actions.SET_BREAKPOINTS_SUPPORTED,
+        CAP_MONITOR_BREAKPOINTS in set(caps),
     )
 
     wcpu = Window(title="CPU State")
@@ -98,7 +99,7 @@ async def main(scr, socket_path):
         running_interval=0.05,
     )
     dispatcher.set_after_rpc(status_updater.request_refresh)
-    appmode_updater = AppModeUpdater(dispatcher)
+    appmode_updater = AppModeUpdater()
     shortcutbar = ShortcutBar(bottom)
     wdisasm.visible = state.disassembly_enabled
     wbreakpoints.visible = state.breakpoints_supported
@@ -215,11 +216,13 @@ async def main(scr, socket_path):
         bottom.reshape(x=0, y=h - 1, w=w, h=1)
 
     screen = Screen(scr, layout_initializer=init_screen)
+    dispatcher.set_input_focus_handler(screen.set_input_focus)
     screen.set_focus_order(
         [wdlist, wwatch, wscreen, wdisasm, whistory, wbreakpoints]
     )
     app = App(
         screen=screen,
+        dispatcher=dispatcher,
         status_updater=status_updater,
         input_timeout_ms=200,
     )
@@ -228,34 +231,14 @@ async def main(scr, socket_path):
         screen=screen,
         window=wbreakpoints,
     )
-    disassembly_view.bind_input(
-        screen,
-        set_address=lambda addr: dispatcher.dispatch(
-            Actions.SET_DISASSEMBLY_ADDR, addr
-        ),
-        set_input_focus=lambda enabled: dispatcher.dispatch(
-            Actions.SET_INPUT_FOCUS, enabled
-        ),
-        set_input_target=lambda target: dispatcher.dispatch(
-            Actions.SET_INPUT_TARGET, target
-        ),
-        set_input_buffer=lambda text: dispatcher.dispatch(
-            Actions.SET_INPUT_BUFFER, text
-        ),
-    )
-    screen_inspector.bind_input(screen)
-    watchers_view.bind_input(screen, dispatcher)
-    breakpoints_view.bind_input(screen)
-    breakpoints_view.attach_dispatcher(dispatcher)
-
     def build_shortcuts():
         def action(key, label, action):
-            return Shortcut(key, label, lambda: dispatcher.dispatch(action))
+            return Shortcut(key, label, lambda: app.dispatch_action(action))
 
         def step_with_follow(action_id):
             def run():
                 disassembly_view.enable_follow()
-                dispatcher.dispatch(action_id)
+                app.dispatch_action(action_id)
 
             return run
 
@@ -306,10 +289,10 @@ async def main(scr, socket_path):
         def toggle_disassembly():
             if not wdisasm.visible:
                 if state.disassembly_addr is None:
-                    dispatcher.dispatch(
+                    app.dispatch_action(
                         Actions.SET_DISASSEMBLY_ADDR, state.cpu.pc & 0xFFFF
                     )
-                dispatcher.dispatch(Actions.SET_DISASSEMBLY, True)
+                app.dispatch_action(Actions.SET_DISASSEMBLY, True)
                 wdisasm.visible = True
                 app.rebuild_screen()
                 screen.focus(wdisasm)
@@ -380,7 +363,7 @@ async def main(scr, socket_path):
         )
         shortcuts.add_global(action("q", "Quit", Actions.QUIT))
 
-    shortcuts_component = ShortcutsComponent(shortcuts, dispatcher)
+    shortcuts_component = ShortcutsComponent(shortcuts)
     app.add_component(dispatcher)
     app.add_component(cpu)
     app.add_component(disassembly_view)

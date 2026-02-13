@@ -70,9 +70,7 @@ class HistoryViewer(VisualRpcComponent):
         self.grid.render_grid()
 
     def handle_input(self, ch):
-        if state.input_focus:
-            return False
-        if self.window._screen is None or self.window._screen.focused is not self.window:
+        if self.app.screen.focused is not self.window:
             return False
         consumed = self.grid.handle_grid_navigation_input(ch)
         if not consumed:

@@ -14,8 +14,7 @@ class WatchersViewer(VisualRpcComponent):
     def __init__(self, rpc, window):
         super().__init__(rpc, window)
         self.grid = GridWidget(window, col_gap=0)
-        self._screen = None
-        self._dispatcher = None
+        self._rows = []
         self._input_snapshot = ""
         self._input_mode = None
         self._pending_addr = None
@@ -27,17 +26,13 @@ class WatchersViewer(VisualRpcComponent):
             max_length=8,
             on_change=self._on_search_change,
         )
-
-    def bind_input(self, screen, dispatcher):
-        self._screen = screen
-        self._dispatcher = dispatcher
         self.window.on_focus = self.clear_selection
 
     def clear_selection(self):
         self.grid.set_grid_selected(None)
 
     async def update(self):
-        ranges = [(row.addr & 0xFFFF, 2) for row in state.watchers]
+        ranges = [(row.addr & 0xFFFF, 2) for row in self._rows]
         if self._pending_addr is not None:
             ranges.append((self._pending_addr, 2))
 
@@ -63,7 +58,7 @@ class WatchersViewer(VisualRpcComponent):
                     return False
 
         watchers = []
-        for idx, row in enumerate(state.watchers):
+        for idx, row in enumerate(self._rows):
             addr = row.addr & 0xFFFF
             if idx < len(values):
                 value, next_value = values[idx]
@@ -99,17 +94,15 @@ class WatchersViewer(VisualRpcComponent):
             tuple(watchers),
             pending,
             self._selected_index(),
-            state.input_focus,
-            state.input_target,
-            state.input_buffer,
+            self._search_input.buffer,
             state.use_atascii,
             self._input_mode,
         )
         if snapshot == self._last_snapshot:
             return False
         self._last_snapshot = snapshot
-        if watchers != state.watchers:
-            self._dispatcher.update_watchers(watchers)
+        if not watchers == self._rows:
+            self._rows = watchers
         return True
 
     def render(self, force_redraw=False):
@@ -119,7 +112,7 @@ class WatchersViewer(VisualRpcComponent):
         ih = self.window._ih
         if ih <= 0:
             return
-        input_active = state.input_focus and state.input_target == "watchers"
+        input_active = self._input_mode == "search"
         rows = []
         row_base = 0
         if input_active:
@@ -130,7 +123,7 @@ class WatchersViewer(VisualRpcComponent):
         if self._pending_row is not None:
             pending_offset = 1
             rows.append(self._row_cells(self._pending_row))
-        for row in state.watchers:
+        for row in self._rows:
             rows.append(self._row_cells(row))
 
         selected = self._selected_index()
@@ -145,20 +138,14 @@ class WatchersViewer(VisualRpcComponent):
 
         if input_active:
             self.window.cursor = (0, 0)
-            text = state.input_buffer[:8]
+            text = self._search_input.buffer[:8]
             self.window.print(
                 text.ljust(8), attr=Color.TEXT.attr() | curses.A_REVERSE
             )
             self.window.clear_to_eol()
 
     def handle_input(self, ch):
-        if state.input_focus:
-            if state.input_target != "watchers":
-                return False
-            return self._handle_search_input(ch)
-        if self._screen is None or self._dispatcher is None:
-            return False
-        if self._screen.focused is not self.window:
+        if self.app.screen.focused is not self.window:
             return False
 
         if ch == ord("/"):
@@ -177,8 +164,7 @@ class WatchersViewer(VisualRpcComponent):
     def _close_input(self):
         self._input_mode = None
         self._search_input.deactivate()
-        self._dispatcher.dispatch(Actions.SET_INPUT_FOCUS, False)
-        self._dispatcher.dispatch(Actions.SET_INPUT_TARGET, None)
+        self.app.dispatch_action(Actions.SET_INPUT_FOCUS, None)
         try:
             curses.curs_set(0)
         except curses.error:
@@ -190,9 +176,7 @@ class WatchersViewer(VisualRpcComponent):
         self._pending_addr = None
         self._pending_row = None
         self._search_input.activate(self._input_snapshot)
-        self._dispatcher.dispatch(Actions.SET_INPUT_BUFFER, self._search_input.buffer)
-        self._dispatcher.dispatch(Actions.SET_INPUT_TARGET, "watchers")
-        self._dispatcher.dispatch(Actions.SET_INPUT_FOCUS, True)
+        self.app.dispatch_action(Actions.SET_INPUT_FOCUS, self._handle_search_input)
         try:
             curses.curs_set(1)
         except curses.error:
@@ -200,7 +184,6 @@ class WatchersViewer(VisualRpcComponent):
 
     def _update_search_buffer(self, text: str):
         self._search_input.set_buffer(text)
-        self._dispatcher.dispatch(Actions.SET_INPUT_BUFFER, self._search_input.buffer)
 
     def _handle_search_input(self, ch):
         if ch == 27:
@@ -220,16 +203,10 @@ class WatchersViewer(VisualRpcComponent):
             return True
 
         if ch in (curses.KEY_BACKSPACE, 127, 8):
-            if self._search_input.backspace():
-                self._dispatcher.dispatch(
-                    Actions.SET_INPUT_BUFFER, self._search_input.buffer
-                )
+            self._search_input.backspace()
             return True
 
         if self._search_input.append_char(ch):
-            self._dispatcher.dispatch(
-                Actions.SET_INPUT_BUFFER, self._search_input.buffer
-            )
             return True
         return True
 
@@ -245,7 +222,7 @@ class WatchersViewer(VisualRpcComponent):
         if self._pending_addr is None:
             return
         addr = self._pending_addr & 0xFFFF
-        rows = list(state.watchers)
+        rows = list(self._rows)
         for idx, row in enumerate(rows):
             if row.addr == addr:
                 self._set_selected_index(idx)
@@ -262,17 +239,17 @@ class WatchersViewer(VisualRpcComponent):
             ),
         )
         self._set_selected_index(None)
-        self._dispatcher.update_watchers(rows)
+        self._rows = rows
         self._pending_addr = None
         self._pending_row = None
 
     def _delete_selected(self):
         idx = self._selected_index()
-        rows = list(state.watchers)
+        rows = list(self._rows)
         if idx is None or idx < 0 or idx >= len(rows):
             return
         rows.pop(idx)
-        self._dispatcher.update_watchers(rows)
+        self._rows = rows
         if not rows:
             self._set_selected_index(None)
         elif idx >= len(rows):
@@ -300,15 +277,15 @@ class WatchersViewer(VisualRpcComponent):
         idx = int(idx) - self._grid_selected_offset
         if idx < 0:
             return None
-        if idx >= len(state.watchers):
+        if idx >= len(self._rows):
             return None
         return idx
 
     def _set_selected_index(self, idx: int | None):
-        if idx is None or len(state.watchers) == 0:
+        if idx is None or len(self._rows) == 0:
             self.grid.set_grid_selected(None)
             return
-        value = max(0, min(int(idx), len(state.watchers) - 1))
+        value = max(0, min(int(idx), len(self._rows) - 1))
         self.grid.set_grid_selected(value + self._grid_selected_offset)
 
     def _row_cells(self, row: WatcherEntry):

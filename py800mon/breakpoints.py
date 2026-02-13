@@ -160,10 +160,11 @@ class BreakpointsViewer(VisualRpcComponent):
         self.grid = GridWidget(window, col_gap=0)
         self._last_snapshot = None
         self._last_state_seq = None
-        self._screen = None
-        self._dispatcher = None
+        self._enabled = False
+        self._rows = []
         self._grid_selected_offset = 0
         self._input_snapshot = ""
+        self._input_active = False
         self._input_invalid = False
         self._pending_add_clauses = None
         self._pending_delete = None
@@ -177,9 +178,6 @@ class BreakpointsViewer(VisualRpcComponent):
             max_length=None,
             on_change=self._on_input_change,
         )
-
-    def bind_input(self, screen):
-        self._screen = screen
 
     async def update(self):
         if not state.breakpoints_supported:
@@ -203,19 +201,9 @@ class BreakpointsViewer(VisualRpcComponent):
         if snapshot == self._last_snapshot:
             return changed
         self._last_snapshot = snapshot
-        if (
-            self._dispatcher is not None
-            and (
-                state.breakpoints_enabled != bp.enabled
-                or state.breakpoints != list(bp.clauses)
-            )
-        ):
-            self._dispatcher.update_breakpoints(bp.enabled, list(bp.clauses))
-            return True
-        return changed
-
-    def attach_dispatcher(self, dispatcher):
-        self._dispatcher = dispatcher
+        self._enabled = bool(bp.enabled)
+        self._rows = list(bp.clauses)
+        return True
 
     def render(self, force_redraw=False):
         self._render_grid()
@@ -225,20 +213,20 @@ class BreakpointsViewer(VisualRpcComponent):
         if ih <= 0:
             return
         dialog_active = self._clear_dialog.active
-        input_active = state.input_focus and state.input_target == "breakpoints"
+        input_active = self._input_active
         row_base = 1 if (input_active or dialog_active) else 0
-        self.window.set_tag_active("bp_enabled", state.breakpoints_enabled)
+        self.window.set_tag_active("bp_enabled", self._enabled)
         self._grid_selected_offset = row_base
 
         rows = []
         if row_base:
             rows.append((GridCell("", Color.TEXT.attr()),))
 
-        if not state.breakpoints:
+        if not self._rows:
             rows.append((GridCell("No breakpoint clauses.", Color.COMMENT.attr()),))
             self.grid.set_grid_selected(None)
         else:
-            for idx, clause in enumerate(state.breakpoints, start=1):
+            for idx, clause in enumerate(self._rows, start=1):
                 cells = [GridCell(f"#{idx:02d} ", Color.ADDRESS.attr())]
                 cells.extend(self._clause_cells(clause))
                 rows.append(tuple(cells))
@@ -257,7 +245,7 @@ class BreakpointsViewer(VisualRpcComponent):
             self.window.cursor = (0, 0)
             color = Color.INPUT_INVALID if self._input_invalid else Color.TEXT
             attr = color.attr() | curses.A_REVERSE
-            self.window.print(state.input_buffer, attr=attr)
+            self.window.print(self._input_widget.buffer, attr=attr)
             self.window.fill_to_eol(attr=attr)
 
     def _clause_cells(self, clause: BreakpointClauseEntry):
@@ -286,18 +274,12 @@ class BreakpointsViewer(VisualRpcComponent):
         return cells
 
     def handle_input(self, ch):
-        if self._screen is None:
-            return False
         if self._clear_dialog.active:
             result = self._clear_dialog.handle_input(ch)
             if result == DialogInput.CONFIRM:
                 self._pending_clear = True
             return not result == DialogInput.NONE
-        if state.input_focus:
-            if state.input_target != "breakpoints":
-                return False
-            return self._handle_text_input(ch)
-        if self._screen.focused is not self.window:
+        if self.app.screen.focused is not self.window:
             return False
         if ch == ord("/"):
             self._open_input("")
@@ -311,46 +293,41 @@ class BreakpointsViewer(VisualRpcComponent):
             self._clear_dialog.activate("Clear all breakpoints?", "YES")
             return True
         if ch == ord(" ") or ch in (ord("e"), ord("E")):
-            self._pending_enabled = not state.breakpoints_enabled
+            self._pending_enabled = not self._enabled
             return True
         return False
 
     def _queue_delete_selected(self):
         idx = self._selected_index()
-        if idx is None or idx < 0 or idx >= len(state.breakpoints):
+        if idx is None or idx < 0 or idx >= len(self._rows):
             return
         self._pending_delete = int(idx)
-        if idx >= len(state.breakpoints) - 1:
-            if len(state.breakpoints) <= 1:
+        if idx >= len(self._rows) - 1:
+            if len(self._rows) <= 1:
                 self._set_selected_index(None)
             else:
-                self._set_selected_index(len(state.breakpoints) - 2)
+                self._set_selected_index(len(self._rows) - 2)
 
     def _close_input(self):
-        if self._dispatcher is None:
-            return
+        self._input_active = False
         self._input_widget.set_invalid(False)
         self._input_invalid = False
         self._input_clauses = None
         self._input_widget.deactivate()
-        self._dispatcher.dispatch(Actions.SET_INPUT_FOCUS, False)
-        self._dispatcher.dispatch(Actions.SET_INPUT_TARGET, None)
+        self.app.dispatch_action(Actions.SET_INPUT_FOCUS, None)
         try:
             curses.curs_set(0)
         except curses.error:
             pass
 
     def _open_input(self, initial: str):
-        if self._dispatcher is None:
-            return
+        self._input_active = True
         self._input_snapshot = str(initial)
         self._input_widget.activate(self._input_snapshot)
         self._input_widget.set_invalid(False)
         self._input_invalid = False
         self._input_clauses = None
-        self._dispatcher.dispatch(Actions.SET_INPUT_BUFFER, self._input_widget.buffer)
-        self._dispatcher.dispatch(Actions.SET_INPUT_TARGET, "breakpoints")
-        self._dispatcher.dispatch(Actions.SET_INPUT_FOCUS, True)
+        self.app.dispatch_action(Actions.SET_INPUT_FOCUS, self._handle_text_input)
         try:
             curses.curs_set(1)
         except curses.error:
@@ -373,11 +350,8 @@ class BreakpointsViewer(VisualRpcComponent):
             self._input_widget.set_invalid(True)
 
     def _handle_text_input(self, ch):
-        if self._dispatcher is None:
-            return False
         if ch == 27:
             self._input_widget.set_buffer(self._input_snapshot)
-            self._dispatcher.dispatch(Actions.SET_INPUT_BUFFER, self._input_snapshot)
             self._close_input()
             return True
         if ch in (10, 13, curses.KEY_ENTER):
@@ -388,11 +362,9 @@ class BreakpointsViewer(VisualRpcComponent):
             self._close_input()
             return True
         if ch in (curses.KEY_BACKSPACE, 127, 8):
-            if self._input_widget.backspace():
-                self._dispatcher.dispatch(Actions.SET_INPUT_BUFFER, self._input_widget.buffer)
+            self._input_widget.backspace()
             return True
         if self._input_widget.append_char(ch):
-            self._dispatcher.dispatch(Actions.SET_INPUT_BUFFER, self._input_widget.buffer)
             return True
         return True
 
@@ -456,13 +428,13 @@ class BreakpointsViewer(VisualRpcComponent):
         idx = int(idx) - self._grid_selected_offset
         if idx < 0:
             return None
-        if idx >= len(state.breakpoints):
+        if idx >= len(self._rows):
             return None
         return idx
 
     def _set_selected_index(self, idx: int | None):
-        if idx is None or len(state.breakpoints) == 0:
+        if idx is None or len(self._rows) == 0:
             self.grid.set_grid_selected(None)
             return
-        value = max(0, min(int(idx), len(state.breakpoints) - 1))
+        value = max(0, min(int(idx), len(self._rows) - 1))
         self.grid.set_grid_selected(value + self._grid_selected_offset)

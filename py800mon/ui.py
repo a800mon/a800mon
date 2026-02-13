@@ -12,6 +12,7 @@ class Screen:
         self._initialized = False
         self.focused = None
         self._focus_index = -1
+        self._input_handler = None
         self.scr.nodelay(True)
 
     def initialize(self):
@@ -103,6 +104,17 @@ class Screen:
     def get_input_char(self):
         ch = self.scr.getch()
         return ch
+
+    def set_input_focus(self, handler):
+        self._input_handler = handler
+
+    def has_input_focus(self):
+        return self._input_handler is not None
+
+    def handle_input(self, ch):
+        if self._input_handler is None:
+            return False
+        return bool(self._input_handler(ch))
 
     def set_input_timeout_ms(self, timeout_ms):
         if timeout_ms is None:
