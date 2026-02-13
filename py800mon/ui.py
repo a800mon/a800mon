@@ -435,6 +435,7 @@ class Color(enum.Enum):
     MNEMONIC = (4, curses.A_BOLD)
     COMMENT = (7, curses.A_DIM)
     UNUSED = (8, curses.A_DIM)
+    INPUT_INVALID = (5, curses.A_BOLD)
 
     def attr(self):
         return curses.color_pair(self.value[0]) | self.value[1]

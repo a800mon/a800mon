@@ -1012,13 +1012,9 @@ func cmdBPAdd(socket string, args cliBPAddCmd) int {
 	if len(args.Conditions) == 0 {
 		return fail(errors.New("Specify at least one condition."))
 	}
-	conds := make([]BreakpointCondition, 0, len(args.Conditions))
-	for _, expr := range args.Conditions {
-		cond, err := parseBPCondition(expr)
-		if err != nil {
-			return fail(err)
-		}
-		conds = append(conds, cond)
+	conds, err := parseBPClause(strings.Join(args.Conditions, " && "))
+	if err != nil {
+		return fail(err)
 	}
 	idx, err := rpcClient(socket).BPAddClause(context.Background(), conds)
 	if err != nil {

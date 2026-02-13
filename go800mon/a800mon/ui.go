@@ -108,6 +108,7 @@ const (
 	ColorMnemonic
 	ColorComment
 	ColorUnused
+	ColorInputInvalid
 )
 
 func NewScreen(layoutInitializer func(*Screen)) *Screen {
@@ -631,6 +632,8 @@ func (c Color) Attr() int {
 		return int(C.g_color_pair(7)) | AttrDim()
 	case ColorUnused:
 		return int(C.g_color_pair(8)) | AttrDim()
+	case ColorInputInvalid:
+		return int(C.g_color_pair(5)) | AttrBold()
 	default:
 		return 0
 	}

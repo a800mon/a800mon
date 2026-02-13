@@ -21,6 +21,7 @@ class InputWidget(VisualComponent):
         self.max_length = max_length
         self.on_enter = on_enter
         self.on_change = on_change
+        self.invalid = False
         self._buffer = ""
 
     @property
@@ -34,7 +35,11 @@ class InputWidget(VisualComponent):
         self._buffer = text
 
     def deactivate(self):
+        self.invalid = False
         self._buffer = ""
+
+    def set_invalid(self, invalid: bool):
+        self.invalid = bool(invalid)
 
     def _normalize_char(self, ch: str) -> str:
         return ch
@@ -88,7 +93,8 @@ class InputWidget(VisualComponent):
 
     def render(self, force_redraw=False):
         self.window.cursor = 0, 0
-        attr = self.color.attr() | curses.A_REVERSE
+        color = Color.INPUT_INVALID if self.invalid else self.color
+        attr = color.attr() | curses.A_REVERSE
         text = state.input_buffer
         self.window.print(text, attr=attr)
         self.window.fill_to_eol(attr=attr)
@@ -118,7 +124,8 @@ class AddressInputWidget(InputWidget):
 
     def render(self, force_redraw=False):
         self.window.cursor = 0, 0
-        attr = self.color.attr() | curses.A_REVERSE
+        color = Color.INPUT_INVALID if self.invalid else self.color
+        attr = color.attr() | curses.A_REVERSE
         text = state.input_buffer[-4:].upper().rjust(4, "0")
         self.window.print(text, attr=attr)
         self.window.fill_to_eol(attr=attr)

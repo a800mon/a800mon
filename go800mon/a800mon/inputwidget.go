@@ -7,6 +7,7 @@ type InputWidget struct {
 	buffer    string
 	maxLength int
 	onChange  func(string)
+	invalid   bool
 }
 
 func NewInputWidget(window *Window) *InputWidget {
@@ -42,6 +43,7 @@ func (i *InputWidget) Activate(initial string) {
 }
 
 func (i *InputWidget) Deactivate() {
+	i.invalid = false
 	_ = i.SetBuffer("")
 }
 
@@ -83,6 +85,14 @@ func (i *InputWidget) Backspace() bool {
 	i.buffer = string(r[:len(r)-1])
 	i.emitChange()
 	return true
+}
+
+func (i *InputWidget) SetInvalid(invalid bool) {
+	i.invalid = invalid
+}
+
+func (i *InputWidget) Invalid() bool {
+	return i.invalid
 }
 
 func (i *InputWidget) emitChange() {

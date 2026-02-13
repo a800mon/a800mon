@@ -5,7 +5,7 @@ import struct
 import sys
 
 from .atascii import atascii_to_screen, text_to_atascii
-from .breakpoints import format_bp_condition, parse_bp_condition
+from .breakpoints import format_bp_condition, parse_bp_clauses
 from .datastructures import CpuState
 from .disasm import disasm_6502, disasm_6502_one
 from .displaylist import (DLPTRS_ADDR, DMACTL_ADDR, DMACTL_HW_ADDR,
@@ -728,18 +728,28 @@ def _cmd_bp_list(args):
         sys.stdout.write("No breakpoint clauses.\n")
         return 0
     for idx, clause in enumerate(bp.clauses, start=1):
-        cond_text = " && ".join(format_bp_condition(cond) for cond in clause.conditions)
+        cond_text = " AND ".join(format_bp_condition(cond) for cond in clause.conditions)
         sys.stdout.write(f"#{idx:02d} {cond_text}\n")
     return 0
 
 
 def _cmd_bp_add(args):
     try:
-        conditions = [parse_bp_condition(text) for text in args.conditions]
+        clauses = parse_bp_clauses(" ".join(args.conditions))
     except ValueError as ex:
         raise SystemExit(str(ex)) from ex
-    idx = async_to_sync(_rpc(args.socket).breakpoint_add_clause(conditions))
-    sys.stdout.write(f"Added clause #{idx + 1}\n")
+    added = []
+    for clause in clauses:
+        idx = async_to_sync(_rpc(args.socket).breakpoint_add_clause(list(clause)))
+        added.append(int(idx) + 1)
+    if not added:
+        return 0
+    if len(added) == 1:
+        sys.stdout.write(f"Added clause #{added[0]}\n")
+    else:
+        sys.stdout.write(
+            "Added clauses: " + ", ".join(f"#{idx}" for idx in added) + "\n"
+        )
     return 0
 
 
