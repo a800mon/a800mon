@@ -104,7 +104,6 @@ func RunMonitor(ctx context.Context, socketPath string) error {
 	screen.SetFocusOrder(wdlist, wwatch, wscreen, wdisasm, whistory, wbreakpoints)
 
 	statusUpdater := NewStatusUpdater(rpc, dispatcher, 200*time.Millisecond, 50*time.Millisecond)
-	dispatcher.SetAfterRPC(statusUpdater.RequestRefresh)
 
 	screenInspector := NewScreenBufferInspector(rpc, wscreen)
 	disassemblyView := NewDisassemblyViewer(rpc, wdisasm)
@@ -218,7 +217,7 @@ func RunMonitor(ctx context.Context, socketPath string) error {
 	}
 	screen.layoutInitializer = layout
 
-	app := NewApp(screen, statusUpdater, 20)
+	app := NewApp(screen, dispatcher, statusUpdater, 20)
 	breakpointsWindowUpdater := NewBreakpointsWindowUpdater(app, screen, wbreakpoints)
 	disassemblyView.BindInput(screen, dispatcher)
 	screenInspector.BindInput(screen)

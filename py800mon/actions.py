@@ -37,7 +37,7 @@ class ActionDispatcher(Component):
         super().__init__()
         self._rpc = rpc
         self._rpc_queue = []
-        self._after_rpc = None
+        self._rpc_flushed = False
         self._set_input_focus = set_input_focus
 
     async def update(self):
@@ -46,9 +46,8 @@ class ActionDispatcher(Component):
         queue, self._rpc_queue = self._rpc_queue, []
         for cmd in queue:
             await self._call_rpc(cmd)
-        if self._after_rpc is not None:
-            self._after_rpc()
-        return False
+        self._rpc_flushed = True
+        return True
 
     async def _call_rpc(self, cmd):
         try:
@@ -59,11 +58,13 @@ class ActionDispatcher(Component):
     def _enqueue_rpc(self, cmd):
         self._rpc_queue.append(cmd)
 
-    def set_after_rpc(self, callback):
-        self._after_rpc = callback
-
     def set_input_focus_handler(self, callback):
         self._set_input_focus = callback
+
+    def take_rpc_flushed(self):
+        flushed = self._rpc_flushed
+        self._rpc_flushed = False
+        return flushed
 
     def dispatch(self, action: Actions, value=None):
         if action == Actions.STEP:

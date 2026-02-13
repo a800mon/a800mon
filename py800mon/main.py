@@ -98,7 +98,6 @@ async def main(scr, socket_path):
         paused_interval=0.2,
         running_interval=0.05,
     )
-    dispatcher.set_after_rpc(status_updater.request_refresh)
     appmode_updater = AppModeUpdater()
     shortcutbar = ShortcutBar(bottom)
     wdisasm.visible = state.disassembly_enabled

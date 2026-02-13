@@ -18,14 +18,20 @@ type VisualComponent interface {
 
 type App struct {
 	screen         *Screen
+	dispatcher     *ActionDispatcher
 	components     []Component
 	visual         []VisualComponent
 	statusUpdater  *StatusUpdater
 	inputTimeoutMS int
 }
 
-func NewApp(screen *Screen, updater *StatusUpdater, inputTimeoutMS int) *App {
-	return &App{screen: screen, statusUpdater: updater, inputTimeoutMS: inputTimeoutMS}
+func NewApp(screen *Screen, dispatcher *ActionDispatcher, updater *StatusUpdater, inputTimeoutMS int) *App {
+	return &App{
+		screen:         screen,
+		dispatcher:     dispatcher,
+		statusUpdater:  updater,
+		inputTimeoutMS: inputTimeoutMS,
+	}
 }
 
 func (a *App) AddComponent(c Component) {
@@ -109,6 +115,9 @@ func (a *App) Loop(ctx context.Context) error {
 				return nil
 			}
 			return err
+		}
+		if a.statusUpdater != nil && a.dispatcher != nil && a.dispatcher.TakeRPCFlushed() {
+			a.statusUpdater.RequestRefresh()
 		}
 		a.renderComponents(hadInput || hadUpdates || hadResize)
 		store.setFrameTimeMS(int(time.Since(start).Milliseconds()))

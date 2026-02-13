@@ -110,6 +110,11 @@ class App:
                     )
                     continue
                 had_updates = await self.update_state()
+                if (
+                    self._status_updater is not None
+                    and self.dispatcher.take_rpc_flushed()
+                ):
+                    self._status_updater.request_refresh()
                 await self.render_components(
                     force_redraw=had_input or had_updates
                 )

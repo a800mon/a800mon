@@ -33,7 +33,7 @@ func (s StopLoop) Error() string { return "stop loop" }
 type ActionDispatcher struct {
 	rpc      *RpcClient
 	rpcQueue []Command
-	afterRPC func()
+	rpcFlushed bool
 	stopLoop bool
 }
 
@@ -53,16 +53,16 @@ func (d *ActionDispatcher) Update(ctx context.Context) (bool, error) {
 	for _, cmd := range queue {
 		_, _ = d.rpc.Call(ctx, cmd, nil)
 	}
-	if d.afterRPC != nil {
-		d.afterRPC()
-	}
-	return false, nil
+	d.rpcFlushed = true
+	return true, nil
 }
 func (d *ActionDispatcher) HandleInput(ch int) bool { return false }
 func (d *ActionDispatcher) Render(force bool)       {}
 
-func (d *ActionDispatcher) SetAfterRPC(cb func()) {
-	d.afterRPC = cb
+func (d *ActionDispatcher) TakeRPCFlushed() bool {
+	flushed := d.rpcFlushed
+	d.rpcFlushed = false
+	return flushed
 }
 
 func (d *ActionDispatcher) enqueue(cmd Command) {
