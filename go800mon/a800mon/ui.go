@@ -95,8 +95,8 @@ type GridCell struct {
 
 type GridRow []GridCell
 
-type GridWindow struct {
-	*Window
+type GridWidget struct {
+	window               *Window
 	gridRows             []GridRow
 	gridColWidths        []int
 	gridOffset           int
@@ -340,13 +340,17 @@ func NewWindow(title string, border bool) *Window {
 	}
 }
 
-func NewGridWindow(title string, border bool) *GridWindow {
-	return &GridWindow{
-		Window:               NewWindow(title, border),
+func NewGridWidget(window *Window) *GridWidget {
+	return &GridWidget{
+		window:               window,
 		gridColGap:           1,
 		gridShowScrollbar:    true,
 		gridSelectionEnabled: true,
 	}
+}
+
+func (g *GridWidget) Window() *Window {
+	return g.window
 }
 
 func NewDialogWidget(window *Window) *DialogWidget {
@@ -719,19 +723,19 @@ func (w *Window) Newline() {
 	}
 }
 
-func (w *GridWindow) SetGridRows(rows []GridRow) {
+func (g *GridWidget) SetGridRows(rows []GridRow) {
 	out := make([]GridRow, len(rows))
 	for i, row := range rows {
 		cp := make(GridRow, len(row))
 		copy(cp, row)
 		out[i] = cp
 	}
-	w.gridRows = out
-	w.clampGridState()
-	w.dirty = true
+	g.gridRows = out
+	g.clampGridState()
+	g.window.dirty = true
 }
 
-func (w *GridWindow) SetGridColumnWidths(widths []int) {
+func (g *GridWidget) SetGridColumnWidths(widths []int) {
 	out := make([]int, len(widths))
 	for i, width := range widths {
 		if width < 0 {
@@ -739,45 +743,45 @@ func (w *GridWindow) SetGridColumnWidths(widths []int) {
 		}
 		out[i] = width
 	}
-	w.gridColWidths = out
-	w.dirty = true
+	g.gridColWidths = out
+	g.window.dirty = true
 }
 
-func (w *GridWindow) SetGridSelected(idx *int) {
-	if idx == nil || len(w.gridRows) == 0 {
-		if !w.gridSelectedSet {
+func (g *GridWidget) SetGridSelected(idx *int) {
+	if idx == nil || len(g.gridRows) == 0 {
+		if !g.gridSelectedSet {
 			return
 		}
-		w.gridSelectedSet = false
-		w.gridSelected = 0
-		w.dirty = true
+		g.gridSelectedSet = false
+		g.gridSelected = 0
+		g.window.dirty = true
 		return
 	}
 	value := *idx
 	if value < 0 {
 		value = 0
 	}
-	if value >= len(w.gridRows) {
-		value = len(w.gridRows) - 1
+	if value >= len(g.gridRows) {
+		value = len(g.gridRows) - 1
 	}
-	if w.gridSelectedSet && w.gridSelected == value {
+	if g.gridSelectedSet && g.gridSelected == value {
 		return
 	}
-	w.gridSelected = value
-	w.gridSelectedSet = true
-	w.ensureGridRowVisible(value)
-	w.dirty = true
+	g.gridSelected = value
+	g.gridSelectedSet = true
+	g.ensureGridRowVisible(value)
+	g.window.dirty = true
 }
 
-func (w *GridWindow) GridSelected() (int, bool) {
-	if !w.gridSelectedSet {
+func (g *GridWidget) GridSelected() (int, bool) {
+	if !g.gridSelectedSet {
 		return 0, false
 	}
-	return w.gridSelected, true
+	return g.gridSelected, true
 }
 
-func (w *GridWindow) SetGridOffset(offset int) {
-	maxOffset := w.gridMaxOffset()
+func (g *GridWidget) SetGridOffset(offset int) {
+	maxOffset := g.gridMaxOffset()
 	value := offset
 	if value < 0 {
 		value = 0
@@ -785,71 +789,71 @@ func (w *GridWindow) SetGridOffset(offset int) {
 	if value > maxOffset {
 		value = maxOffset
 	}
-	if value == w.gridOffset {
+	if value == g.gridOffset {
 		return
 	}
-	w.gridOffset = value
-	w.dirty = true
+	g.gridOffset = value
+	g.window.dirty = true
 }
 
-func (w *GridWindow) ScrollGrid(delta int) {
-	w.SetGridOffset(w.gridOffset + delta)
+func (g *GridWidget) ScrollGrid(delta int) {
+	g.SetGridOffset(g.gridOffset + delta)
 }
 
-func (w *GridWindow) ScrollGridPage(direction int) {
-	page := max(1, w.ih)
-	w.ScrollGrid(direction * page)
+func (g *GridWidget) ScrollGridPage(direction int) {
+	page := max(1, g.window.ih)
+	g.ScrollGrid(direction * page)
 }
 
-func (w *GridWindow) GridHome() {
-	w.SetGridOffset(0)
+func (g *GridWidget) GridHome() {
+	g.SetGridOffset(0)
 }
 
-func (w *GridWindow) GridEnd() {
-	w.SetGridOffset(w.gridMaxOffset())
+func (g *GridWidget) GridEnd() {
+	g.SetGridOffset(g.gridMaxOffset())
 }
 
-func (w *GridWindow) SetGridShowScrollbar(enabled bool) {
-	if w.gridShowScrollbar == enabled {
+func (g *GridWidget) SetGridShowScrollbar(enabled bool) {
+	if g.gridShowScrollbar == enabled {
 		return
 	}
-	w.gridShowScrollbar = enabled
-	w.dirty = true
+	g.gridShowScrollbar = enabled
+	g.window.dirty = true
 }
 
-func (w *GridWindow) SetGridSelectionEnabled(enabled bool) {
-	if w.gridSelectionEnabled == enabled {
+func (g *GridWidget) SetGridSelectionEnabled(enabled bool) {
+	if g.gridSelectionEnabled == enabled {
 		return
 	}
-	w.gridSelectionEnabled = enabled
-	w.dirty = true
+	g.gridSelectionEnabled = enabled
+	g.window.dirty = true
 }
 
-func (w *GridWindow) SetGridColumnGap(gap int) {
+func (g *GridWidget) SetGridColumnGap(gap int) {
 	if gap < 0 {
 		gap = 0
 	}
-	if w.gridColGap == gap {
+	if g.gridColGap == gap {
 		return
 	}
-	w.gridColGap = gap
-	w.dirty = true
+	g.gridColGap = gap
+	g.window.dirty = true
 }
 
-func (w *GridWindow) GridMoveSelected(delta int) {
-	count := len(w.gridRows)
+func (g *GridWidget) GridMoveSelected(delta int) {
+	count := len(g.gridRows)
 	if count <= 0 {
-		w.SetGridSelected(nil)
+		g.SetGridSelected(nil)
 		return
 	}
-	cur, ok := w.GridSelected()
+	cur, ok := g.GridSelected()
 	if !ok {
 		if delta < 0 {
 			idx := count - 1
-			w.SetGridSelected(&idx)
+			g.SetGridSelected(&idx)
 		} else {
 			idx := 0
-			w.SetGridSelected(&idx)
+			g.SetGridSelected(&idx)
 		}
 		return
 	}
@@ -860,92 +864,93 @@ func (w *GridWindow) GridMoveSelected(delta int) {
 	if next >= count {
 		next = count - 1
 	}
-	w.SetGridSelected(&next)
+	g.SetGridSelected(&next)
 }
 
-func (w *GridWindow) GridMoveSelectedPage(direction int) {
-	page := max(1, w.ih)
-	w.GridMoveSelected(direction * page)
+func (g *GridWidget) GridMoveSelectedPage(direction int) {
+	page := max(1, g.window.ih)
+	g.GridMoveSelected(direction * page)
 }
 
-func (w *GridWindow) GridSelectHome() {
-	if len(w.gridRows) <= 0 {
-		w.SetGridSelected(nil)
+func (g *GridWidget) GridSelectHome() {
+	if len(g.gridRows) <= 0 {
+		g.SetGridSelected(nil)
 		return
 	}
 	idx := 0
-	w.SetGridSelected(&idx)
+	g.SetGridSelected(&idx)
 }
 
-func (w *GridWindow) GridSelectEnd() {
-	if len(w.gridRows) <= 0 {
-		w.SetGridSelected(nil)
+func (g *GridWidget) GridSelectEnd() {
+	if len(g.gridRows) <= 0 {
+		g.SetGridSelected(nil)
 		return
 	}
-	idx := len(w.gridRows) - 1
-	w.SetGridSelected(&idx)
+	idx := len(g.gridRows) - 1
+	g.SetGridSelected(&idx)
 }
 
-func (w *GridWindow) HandleGridNavigationInput(ch int) bool {
+func (g *GridWidget) HandleGridNavigationInput(ch int) bool {
 	if ch == KeyUp() {
-		if w.gridSelectionEnabled {
-			w.GridMoveSelected(-1)
+		if g.gridSelectionEnabled {
+			g.GridMoveSelected(-1)
 		} else {
-			w.ScrollGrid(-1)
+			g.ScrollGrid(-1)
 		}
 		return true
 	}
 	if ch == KeyDown() {
-		if w.gridSelectionEnabled {
-			w.GridMoveSelected(1)
+		if g.gridSelectionEnabled {
+			g.GridMoveSelected(1)
 		} else {
-			w.ScrollGrid(1)
+			g.ScrollGrid(1)
 		}
 		return true
 	}
 	if ch == KeyPageUp() || ch == 339 {
-		if w.gridSelectionEnabled {
-			w.GridMoveSelectedPage(-1)
+		if g.gridSelectionEnabled {
+			g.GridMoveSelectedPage(-1)
 		} else {
-			w.ScrollGridPage(-1)
+			g.ScrollGridPage(-1)
 		}
 		return true
 	}
 	if ch == KeyPageDown() || ch == 338 {
-		if w.gridSelectionEnabled {
-			w.GridMoveSelectedPage(1)
+		if g.gridSelectionEnabled {
+			g.GridMoveSelectedPage(1)
 		} else {
-			w.ScrollGridPage(1)
+			g.ScrollGridPage(1)
 		}
 		return true
 	}
 	if ch == KeyHome() || ch == 262 {
-		if w.gridSelectionEnabled {
-			w.GridSelectHome()
+		if g.gridSelectionEnabled {
+			g.GridSelectHome()
 		} else {
-			w.GridHome()
+			g.GridHome()
 		}
 		return true
 	}
 	if ch == KeyEnd() || ch == 360 {
-		if w.gridSelectionEnabled {
-			w.GridSelectEnd()
+		if g.gridSelectionEnabled {
+			g.GridSelectEnd()
 		} else {
-			w.GridEnd()
+			g.GridEnd()
 		}
 		return true
 	}
 	return false
 }
 
-func (w *GridWindow) RenderGrid() {
+func (g *GridWidget) RenderGrid() {
+	w := g.window
 	ih := w.ih
 	if ih <= 0 {
 		return
 	}
-	w.clampGridState()
-	hasFocus := w.screen == nil || w.screen.focused == w.Window
-	showScrollbar := w.gridShowScrollbar && w.iw > 0 && len(w.gridRows) > ih
+	g.clampGridState()
+	hasFocus := w.screen == nil || w.screen.focused == w
+	showScrollbar := g.gridShowScrollbar && w.iw > 0 && len(g.gridRows) > ih
 	contentW := w.iw
 	if showScrollbar {
 		contentW--
@@ -953,20 +958,20 @@ func (w *GridWindow) RenderGrid() {
 	if contentW < 0 {
 		contentW = 0
 	}
-	start := w.gridOffset
-	end := min(len(w.gridRows), start+ih)
+	start := g.gridOffset
+	end := min(len(g.gridRows), start+ih)
 	drawn := 0
 	for rowIdx := start; rowIdx < end; rowIdx++ {
-		row := w.gridRows[rowIdx]
+		row := g.gridRows[rowIdx]
 		rev := 0
-		if w.gridSelectionEnabled && hasFocus && w.gridSelectedSet && w.gridSelected == rowIdx {
+		if g.gridSelectionEnabled && hasFocus && g.gridSelectedSet && g.gridSelected == rowIdx {
 			rev = AttrReverse()
 		}
 		x := 0
 		for colIdx, cell := range row {
 			text := cell.Text
-			if colIdx < len(w.gridColWidths) {
-				width := w.gridColWidths[colIdx]
+			if colIdx < len(g.gridColWidths) {
+				width := g.gridColWidths[colIdx]
 				if width > 0 {
 					text = padRight(cutTo(text, width), width)
 				}
@@ -985,8 +990,8 @@ func (w *GridWindow) RenderGrid() {
 					x += runeLen(text)
 				}
 			}
-			if colIdx < len(row)-1 && w.gridColGap > 0 && x < contentW {
-				gap := min(w.gridColGap, contentW-x)
+			if colIdx < len(row)-1 && g.gridColGap > 0 && x < contentW {
+				gap := min(g.gridColGap, contentW-x)
 				if gap > 0 {
 					w.Cursor(x, drawn)
 					w.Print(strings.Repeat(" ", gap), rev, false)
@@ -1007,15 +1012,16 @@ func (w *GridWindow) RenderGrid() {
 		w.ClearToBottom()
 	}
 	if showScrollbar {
-		w.drawGridScrollbar()
+		g.drawGridScrollbar()
 	}
 }
 
-func (w *GridWindow) drawGridScrollbar() {
+func (g *GridWidget) drawGridScrollbar() {
+	w := g.window
 	if w.iw <= 0 || w.ih <= 0 {
 		return
 	}
-	total := len(w.gridRows)
+	total := len(g.gridRows)
 	if total <= w.ih {
 		return
 	}
@@ -1025,11 +1031,11 @@ func (w *GridWindow) drawGridScrollbar() {
 	if thumbH > trackH {
 		thumbH = trackH
 	}
-	thumbTop := (w.gridOffset * (trackH - thumbH)) / maxOffset
+	thumbTop := (g.gridOffset * (trackH - thumbH)) / maxOffset
 	x := w.iw - 1
 	trackAttr := ColorWindowTitle.Attr()
 	thumbAttr := trackAttr
-	if w.screen != nil && w.screen.focused == w.Window {
+	if w.screen != nil && w.screen.focused == w {
 		thumbAttr = ColorFocus.Attr()
 	}
 	for y := 0; y < trackH; y++ {
@@ -1044,56 +1050,56 @@ func (w *GridWindow) drawGridScrollbar() {
 	}
 }
 
-func (w *GridWindow) gridMaxOffset() int {
-	return max(0, len(w.gridRows)-w.ih)
+func (g *GridWidget) gridMaxOffset() int {
+	return max(0, len(g.gridRows)-g.window.ih)
 }
 
-func (w *GridWindow) clampGridState() {
-	if w.gridSelectedSet {
-		if len(w.gridRows) == 0 {
-			w.gridSelectedSet = false
-			w.gridSelected = 0
+func (g *GridWidget) clampGridState() {
+	if g.gridSelectedSet {
+		if len(g.gridRows) == 0 {
+			g.gridSelectedSet = false
+			g.gridSelected = 0
 		} else {
-			if w.gridSelected < 0 {
-				w.gridSelected = 0
+			if g.gridSelected < 0 {
+				g.gridSelected = 0
 			}
-			if w.gridSelected >= len(w.gridRows) {
-				w.gridSelected = len(w.gridRows) - 1
+			if g.gridSelected >= len(g.gridRows) {
+				g.gridSelected = len(g.gridRows) - 1
 			}
 		}
 	}
-	maxOffset := w.gridMaxOffset()
-	if w.gridOffset < 0 {
-		w.gridOffset = 0
+	maxOffset := g.gridMaxOffset()
+	if g.gridOffset < 0 {
+		g.gridOffset = 0
 	}
-	if w.gridOffset > maxOffset {
-		w.gridOffset = maxOffset
+	if g.gridOffset > maxOffset {
+		g.gridOffset = maxOffset
 	}
-	if w.gridSelectedSet {
-		w.ensureGridRowVisible(w.gridSelected)
+	if g.gridSelectedSet {
+		g.ensureGridRowVisible(g.gridSelected)
 	}
 }
 
-func (w *GridWindow) ensureGridRowVisible(idx int) {
-	if w.ih <= 0 || len(w.gridRows) <= 0 {
+func (g *GridWidget) ensureGridRowVisible(idx int) {
+	if g.window.ih <= 0 || len(g.gridRows) <= 0 {
 		return
 	}
 	row := idx
 	if row < 0 {
 		row = 0
 	}
-	if row >= len(w.gridRows) {
-		row = len(w.gridRows) - 1
+	if row >= len(g.gridRows) {
+		row = len(g.gridRows) - 1
 	}
-	if row < w.gridOffset {
-		w.gridOffset = row
-		w.dirty = true
+	if row < g.gridOffset {
+		g.gridOffset = row
+		g.window.dirty = true
 		return
 	}
-	maxVisible := w.gridOffset + w.ih - 1
+	maxVisible := g.gridOffset + g.window.ih - 1
 	if row > maxVisible {
-		w.gridOffset = row - w.ih + 1
-		w.dirty = true
+		g.gridOffset = row - g.window.ih + 1
+		g.window.dirty = true
 	}
 }
 

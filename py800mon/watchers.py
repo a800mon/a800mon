@@ -7,12 +7,13 @@ from .inputwidget import InputWidget
 from .memorymap import find_symbol_or_addr, lookup_symbol
 from .rpc import RpcException
 from .actions import Actions
-from .ui import Color, GridCell
+from .ui import Color, GridCell, GridWidget
 
 
 class WatchersViewer(VisualRpcComponent):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(self, rpc, window):
+        super().__init__(rpc, window)
+        self.grid = GridWidget(window, col_gap=0)
         self._screen = None
         self._dispatcher = None
         self._input_snapshot = ""
@@ -33,7 +34,7 @@ class WatchersViewer(VisualRpcComponent):
         self.window.on_focus = self.clear_selection
 
     def clear_selection(self):
-        self.window.set_grid_selected(None)
+        self.grid.set_grid_selected(None)
 
     async def update(self):
         ranges = [(row.addr & 0xFFFF, 2) for row in state.watchers]
@@ -135,12 +136,12 @@ class WatchersViewer(VisualRpcComponent):
         selected = self._selected_index()
         self._grid_selected_offset = row_base + pending_offset
         if selected is None:
-            self.window.set_grid_selected(None)
+            self.grid.set_grid_selected(None)
         else:
-            self.window.set_grid_selected(selected + self._grid_selected_offset)
-        self.window.set_grid_column_widths(())
-        self.window.set_grid_rows(rows)
-        self.window.render_grid()
+            self.grid.set_grid_selected(selected + self._grid_selected_offset)
+        self.grid.set_grid_column_widths(())
+        self.grid.set_grid_rows(rows)
+        self.grid.render_grid()
 
         if input_active:
             self.window.cursor = (0, 0)
@@ -164,7 +165,7 @@ class WatchersViewer(VisualRpcComponent):
             self._open_search_input("")
             return True
 
-        if self.window.handle_grid_navigation_input(ch):
+        if self.grid.handle_grid_navigation_input(ch):
             return True
 
         if ch in (curses.KEY_DC, 330):
@@ -293,7 +294,7 @@ class WatchersViewer(VisualRpcComponent):
             self._set_selected_index(row_count - 1)
 
     def _selected_index(self):
-        idx = self.window.grid_selected
+        idx = self.grid.grid_selected
         if idx is None:
             return None
         idx = int(idx) - self._grid_selected_offset
@@ -305,10 +306,10 @@ class WatchersViewer(VisualRpcComponent):
 
     def _set_selected_index(self, idx: int | None):
         if idx is None or len(state.watchers) == 0:
-            self.window.set_grid_selected(None)
+            self.grid.set_grid_selected(None)
             return
         value = max(0, min(int(idx), len(state.watchers) - 1))
-        self.window.set_grid_selected(value + self._grid_selected_offset)
+        self.grid.set_grid_selected(value + self._grid_selected_offset)
 
     def _row_cells(self, row: WatcherEntry):
         word = ((row.next_value & 0xFF) << 8) | (row.value & 0xFF)

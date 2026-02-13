@@ -21,14 +21,15 @@ type DisplayListViewer struct {
 	BaseVisualComponent
 	rpc          *RpcClient
 	lastSnapshot string
-	grid         *GridWindow
+	grid         *GridWidget
 }
 
-func NewDisplayListViewer(rpc *RpcClient, window *GridWindow) *DisplayListViewer {
+func NewDisplayListViewer(rpc *RpcClient, window *Window) *DisplayListViewer {
+	grid := NewGridWidget(window)
 	return &DisplayListViewer{
-		BaseVisualComponent: NewBaseVisualComponent(window.Window),
+		BaseVisualComponent: NewBaseVisualComponent(grid.Window()),
 		rpc:                 rpc,
-		grid:                window,
+		grid:                grid,
 	}
 }
 

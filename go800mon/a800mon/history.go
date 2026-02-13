@@ -11,7 +11,7 @@ import (
 type HistoryViewer struct {
 	BaseVisualComponent
 	rpc          *RpcClient
-	grid         *GridWindow
+	grid         *GridWidget
 	reverseOrder bool
 	lastSnapshot string
 	nextRow      *DisasmRow
@@ -19,11 +19,13 @@ type HistoryViewer struct {
 	followLive   bool
 }
 
-func NewHistoryViewer(rpc *RpcClient, window *GridWindow, reverseOrder bool) *HistoryViewer {
+func NewHistoryViewer(rpc *RpcClient, window *Window, reverseOrder bool) *HistoryViewer {
+	grid := NewGridWidget(window)
+	grid.SetGridColumnGap(0)
 	return &HistoryViewer{
-		BaseVisualComponent: NewBaseVisualComponent(window.Window),
+		BaseVisualComponent: NewBaseVisualComponent(grid.Window()),
 		rpc:                 rpc,
-		grid:                window,
+		grid:                grid,
 		reverseOrder:        reverseOrder,
 		decodeCache:         map[string]DisasmRow{},
 		followLive:          true,

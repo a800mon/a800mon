@@ -10,7 +10,7 @@ import (
 type WatchersViewer struct {
 	BaseVisualComponent
 	rpc           *RpcClient
-	grid          *GridWindow
+	grid          *GridWidget
 	screen        *Screen
 	dispatcher    *ActionDispatcher
 	inputSnapshot string
@@ -19,13 +19,15 @@ type WatchersViewer struct {
 	searchInput   *InputWidget
 }
 
-func NewWatchersViewer(rpc *RpcClient, window *GridWindow) *WatchersViewer {
+func NewWatchersViewer(rpc *RpcClient, window *Window) *WatchersViewer {
+	grid := NewGridWidget(window)
+	grid.SetGridColumnGap(0)
 	v := &WatchersViewer{
-		BaseVisualComponent: NewBaseVisualComponent(window.Window),
+		BaseVisualComponent: NewBaseVisualComponent(grid.Window()),
 		rpc:                 rpc,
-		grid:                window,
+		grid:                grid,
 	}
-	v.searchInput = NewInputWidget(window.Window)
+	v.searchInput = NewInputWidget(grid.Window())
 	v.searchInput.SetMaxLength(8)
 	v.searchInput.SetOnChange(v.onSearchChange)
 	return v

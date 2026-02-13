@@ -4,15 +4,16 @@ from .app import VisualRpcComponent
 from .appstate import state
 from .disasm import DecodedInstruction, disasm_6502_one_decoded
 from .rpc import RpcException
-from .ui import Color, GridCell
+from .ui import Color, GridCell, GridWidget
 
 ASM_COMMENT_COL = 18
 
 
 class HistoryViewer(VisualRpcComponent):
-    def __init__(self, *args, **kwargs):
-        self._reverse_order = bool(kwargs.pop("reverse_order", False))
-        super().__init__(*args, **kwargs)
+    def __init__(self, rpc, window, reverse_order=False):
+        super().__init__(rpc, window)
+        self.grid = GridWidget(window, col_gap=0)
+        self._reverse_order = bool(reverse_order)
         self._entries = []
         self._can_disasm = True
         self._next_pc = None
@@ -58,22 +59,22 @@ class HistoryViewer(VisualRpcComponent):
             for entry in self._entries:
                 rows.append(self._row_cells(entry.pc, self._format_disasm_cached(entry.pc, entry.opbytes)))
 
-        self.window.set_grid_column_widths(())
-        self.window.set_grid_rows(rows)
+        self.grid.set_grid_column_widths(())
+        self.grid.set_grid_rows(rows)
         if not rows:
-            self.window.set_grid_selected(None)
+            self.grid.set_grid_selected(None)
         elif self._follow_live:
-            self.window.set_grid_selected(selected)
-        elif self.window.grid_selected is None:
-            self.window.set_grid_selected(selected)
-        self.window.render_grid()
+            self.grid.set_grid_selected(selected)
+        elif self.grid.grid_selected is None:
+            self.grid.set_grid_selected(selected)
+        self.grid.render_grid()
 
     def handle_input(self, ch):
         if state.input_focus:
             return False
         if self.window._screen is None or self.window._screen.focused is not self.window:
             return False
-        consumed = self.window.handle_grid_navigation_input(ch)
+        consumed = self.grid.handle_grid_navigation_input(ch)
         if not consumed:
             return False
         if self._reverse_order:

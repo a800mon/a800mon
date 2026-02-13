@@ -4,7 +4,7 @@ from .app import VisualRpcComponent
 from .appstate import state, store
 from .datastructures import DisplayList, DisplayListEntry
 from .rpc import RpcException
-from .ui import Color, GridCell
+from .ui import Color, GridCell, GridWidget
 
 DMACTL_ADDR = 0x022F
 DMACTL_HW_ADDR = 0xD400
@@ -191,8 +191,9 @@ class DisplayListMemoryMapper:
 
 
 class DisplayListViewer(VisualRpcComponent):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(self, rpc, window):
+        super().__init__(rpc, window)
+        self.grid = GridWidget(window)
         self._dmactl = 0
 
     async def update(self):
@@ -237,10 +238,10 @@ class DisplayListViewer(VisualRpcComponent):
             selected = state.dlist_selected_region
             if selected is not None and not (0 <= selected < len(rows)):
                 selected = None
-            self.window.set_grid_column_widths((9, 0))
-            self.window.set_grid_rows(rows)
-            self.window.set_grid_selected(selected)
-            self.window.render_grid()
+            self.grid.set_grid_column_widths((9, 0))
+            self.grid.set_grid_rows(rows)
+            self.grid.set_grid_selected(selected)
+            self.grid.render_grid()
             return
         rows = []
         for count, entry in state.dlist.compacted_entries():
@@ -254,11 +255,11 @@ class DisplayListViewer(VisualRpcComponent):
                     GridCell(desc, Color.TEXT.attr()),
                 )
             )
-        self.window.set_grid_column_widths((5, 0))
-        self.window.set_grid_rows(rows)
-        if rows and self.window.grid_selected is None:
-            self.window.set_grid_selected(0)
-        self.window.render_grid()
+        self.grid.set_grid_column_widths((5, 0))
+        self.grid.set_grid_rows(rows)
+        if rows and self.grid.grid_selected is None:
+            self.grid.set_grid_selected(0)
+        self.grid.render_grid()
 
     def handle_input(self, ch):
         if state.input_focus:
@@ -294,4 +295,4 @@ class DisplayListViewer(VisualRpcComponent):
                 return True
             return False
 
-        return self.window.handle_grid_navigation_input(ch)
+        return self.grid.handle_grid_navigation_input(ch)

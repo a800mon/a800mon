@@ -58,7 +58,7 @@ var bpOrWordRe = regexp.MustCompile(`(?i)\bOR\b`)
 type BreakpointsViewer struct {
 	BaseVisualComponent
 	rpc              *RpcClient
-	grid             *GridWindow
+	grid             *GridWidget
 	screen           *Screen
 	dispatcher       *ActionDispatcher
 	lastSnapshot     string
@@ -79,14 +79,16 @@ type BreakpointsViewer struct {
 	inputWidget      *InputWidget
 }
 
-func NewBreakpointsViewer(rpc *RpcClient, window *GridWindow) *BreakpointsViewer {
+func NewBreakpointsViewer(rpc *RpcClient, window *Window) *BreakpointsViewer {
+	grid := NewGridWidget(window)
+	grid.SetGridColumnGap(0)
 	v := &BreakpointsViewer{
-		BaseVisualComponent: NewBaseVisualComponent(window.Window),
+		BaseVisualComponent: NewBaseVisualComponent(grid.Window()),
 		rpc:                 rpc,
-		grid:                window,
+		grid:                grid,
 	}
-	v.clearDialog = NewDialogWidget(window.Window)
-	v.inputWidget = NewInputWidget(window.Window)
+	v.clearDialog = NewDialogWidget(grid.Window())
+	v.inputWidget = NewInputWidget(grid.Window())
 	v.inputWidget.SetOnChange(v.onInputChange)
 	return v
 }

@@ -89,22 +89,19 @@ func RunMonitor(ctx context.Context, socketPath string) error {
 	dispatcher.updateBreakpointsSupported(supportsBreakpoints)
 
 	wcpu := NewWindow("CPU State", true)
-	wdlist := NewGridWindow("DisplayList", true)
-	wwatch := NewGridWindow("Watchers", true)
-	wwatch.SetGridColumnGap(0)
+	wdlist := NewWindow("DisplayList", true)
+	wwatch := NewWindow("Watchers", true)
 	wscreen := NewWindow("Screen Buffer", true)
 	wscreen.AddTag("ATASCII", "atascii", true)
 	wscreen.AddTag("ASCII", "ascii", false)
 	wdisasm := NewWindow("Disassembler", true)
 	wdisasm.AddTag("FOLLOW", "follow", true)
-	whistory := NewGridWindow("History", true)
-	whistory.SetGridColumnGap(0)
-	wbreakpoints := NewGridWindow("Breakpoints", true)
-	wbreakpoints.SetGridColumnGap(0)
+	whistory := NewWindow("History", true)
+	wbreakpoints := NewWindow("Breakpoints", true)
 	wbreakpoints.AddTag("ENABLED", "bp_enabled", false)
 	top := NewWindow("", false)
 	bottom := NewWindow("", false)
-	screen.SetFocusOrder(wdlist.Window, wwatch.Window, wscreen, wdisasm, whistory.Window, wbreakpoints.Window)
+	screen.SetFocusOrder(wdlist, wwatch, wscreen, wdisasm, whistory, wbreakpoints)
 
 	statusUpdater := NewStatusUpdater(rpc, dispatcher, 200*time.Millisecond, 50*time.Millisecond)
 	dispatcher.SetAfterRPC(statusUpdater.RequestRefresh)
@@ -219,13 +216,13 @@ func RunMonitor(ctx context.Context, socketPath string) error {
 	screen.layoutInitializer = layout
 
 	app := NewApp(screen, statusUpdater, 20)
-	breakpointsWindowUpdater := NewBreakpointsWindowUpdater(app, screen, wbreakpoints.Window)
+	breakpointsWindowUpdater := NewBreakpointsWindowUpdater(app, screen, wbreakpoints)
 	disassemblyView.BindInput(screen, dispatcher)
 	screenInspector.BindInput(screen)
 	watchersView.BindInput(screen, dispatcher)
 	breakpointsView.BindInput(screen, dispatcher)
 
-	buildShortcuts(dispatcher, screen, wdlist.Window, whistory.Window, wscreen, wwatch.Window, wbreakpoints.Window, wdisasm, app, disassemblyView)
+	buildShortcuts(dispatcher, screen, wdlist, whistory, wscreen, wwatch, wbreakpoints, wdisasm, app, disassemblyView)
 	inputProcessor := NewShortcutInput(shortcuts, dispatcher)
 
 	app.AddComponent(dispatcher)
