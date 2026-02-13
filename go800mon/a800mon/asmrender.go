@@ -3,17 +3,25 @@ package a800mon
 const asmCommentCol = 18
 
 func printAsmRow(window *Window, row DisasmRow, revAttr int) {
-	if row.Mnemonic == "" {
-		window.Print(row.AsmText, revAttr, false)
-		return
+	for _, cell := range asmRowCells(row) {
+		window.Print(cell.Text, cell.Attr|revAttr, false)
 	}
+}
+
+func asmRowCells(row DisasmRow) []GridCell {
+	if row.Mnemonic == "" {
+		if row.AsmText == "" {
+			return nil
+		}
+		return []GridCell{{Text: row.AsmText, Attr: ColorText.Attr()}}
+	}
+	cells := []GridCell{{Text: row.Mnemonic, Attr: ColorMnemonic.Attr()}}
 	coreLen := len([]rune(row.Mnemonic))
-	window.Print(row.Mnemonic, ColorMnemonic.Attr()|revAttr, false)
 	if row.Operand != "" {
-		window.Print(" ", revAttr, false)
+		cells = append(cells, GridCell{Text: " ", Attr: ColorText.Attr()})
 		coreLen += 1 + len([]rune(row.Operand))
 		if row.FlowTarget == nil || !row.HasOperandAddr {
-			window.Print(row.Operand, revAttr, false)
+			cells = append(cells, GridCell{Text: row.Operand, Attr: ColorText.Attr()})
 		} else {
 			start := row.OperandAddrPos[0]
 			end := row.OperandAddrPos[1]
@@ -27,19 +35,24 @@ func printAsmRow(window *Window, row DisasmRow, revAttr int) {
 			if start > end {
 				start = end
 			}
-			window.Print(string(r[:start]), revAttr, false)
-			window.Print(string(r[start:end]), ColorAddress.Attr()|revAttr, false)
-			window.Print(string(r[end:]), revAttr, false)
+			if start > 0 {
+				cells = append(cells, GridCell{Text: string(r[:start]), Attr: ColorText.Attr()})
+			}
+			cells = append(cells, GridCell{Text: string(r[start:end]), Attr: ColorAddress.Attr()})
+			if end < len(r) {
+				cells = append(cells, GridCell{Text: string(r[end:]), Attr: ColorText.Attr()})
+			}
 		}
 	}
 	if row.Comment == "" {
-		return
+		return cells
 	}
 	if coreLen < asmCommentCol {
-		window.Print(spaces(asmCommentCol-coreLen), revAttr, false)
+		cells = append(cells, GridCell{Text: spaces(asmCommentCol - coreLen), Attr: ColorText.Attr()})
 	}
-	window.Print(" ", revAttr, false)
-	window.Print(row.Comment, ColorComment.Attr()|revAttr, false)
+	cells = append(cells, GridCell{Text: " ", Attr: ColorText.Attr()})
+	cells = append(cells, GridCell{Text: row.Comment, Attr: ColorComment.Attr()})
+	return cells
 }
 
 func spaces(n int) string {

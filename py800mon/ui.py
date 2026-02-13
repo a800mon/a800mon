@@ -1,4 +1,5 @@
 import curses
+import dataclasses
 import enum
 
 
@@ -209,8 +210,14 @@ class Window:
     def put_char(self, x, y, c, attr=0):
         win = self.inner
         cy, cx = win.getyx()
-        win.addch(y, x, c, attr)
-        win.move(cy, cx)
+        try:
+            win.addch(y, x, c, attr)
+        except curses.error:
+            pass
+        try:
+            win.move(cy, cx)
+        except curses.error:
+            pass
 
     def invert_char(self, x: int, y: int) -> None:
         cy, cx = self.inner.getyx()
@@ -455,6 +462,289 @@ class Window:
 
     def __repr__(self):
         return f"<Window title={self.title} w={self.w} h={self.h}>"
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class GridCell:
+    text: str
+    attr: int = 0
+
+
+class GridWindow(Window):
+    def __init__(self, *args, col_gap=1, show_scrollbar=True, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._grid_rows = ()
+        self._grid_col_widths = ()
+        self._grid_offset = 0
+        self._grid_selected = None
+        self._grid_col_gap = max(0, int(col_gap))
+        self._grid_show_scrollbar = bool(show_scrollbar)
+        self._grid_selection_enabled = True
+
+    @property
+    def grid_offset(self) -> int:
+        return self._grid_offset
+
+    @property
+    def grid_selected(self) -> int | None:
+        return self._grid_selected
+
+    def set_grid_rows(self, rows):
+        normalized = []
+        for row in rows:
+            normalized.append(
+                tuple(GridCell(str(cell.text), int(cell.attr)) for cell in row)
+            )
+        new_rows = tuple(normalized)
+        if new_rows == self._grid_rows:
+            return
+        self._grid_rows = new_rows
+        self._clamp_grid_state()
+        self._dirty = True
+
+    def set_grid_column_widths(self, widths):
+        new_widths = tuple(max(0, int(width)) for width in widths)
+        if new_widths == self._grid_col_widths:
+            return
+        self._grid_col_widths = new_widths
+        self._dirty = True
+
+    def set_grid_selected(self, idx: int | None):
+        if idx is None or len(self._grid_rows) == 0:
+            new_sel = None
+        else:
+            new_sel = max(0, min(int(idx), len(self._grid_rows) - 1))
+        if new_sel == self._grid_selected:
+            return
+        self._grid_selected = new_sel
+        self.ensure_grid_selected_visible()
+        self._dirty = True
+
+    def set_grid_offset(self, offset: int):
+        max_offset = self._grid_max_offset()
+        new_offset = max(0, min(int(offset), max_offset))
+        if new_offset == self._grid_offset:
+            return
+        self._grid_offset = new_offset
+        self._dirty = True
+
+    def set_grid_show_scrollbar(self, enabled: bool):
+        new_value = bool(enabled)
+        if new_value == self._grid_show_scrollbar:
+            return
+        self._grid_show_scrollbar = new_value
+        self._dirty = True
+
+    def set_grid_selection_enabled(self, enabled: bool):
+        new_value = bool(enabled)
+        if new_value == self._grid_selection_enabled:
+            return
+        self._grid_selection_enabled = new_value
+        self._dirty = True
+
+    def scroll_grid(self, delta: int):
+        self.set_grid_offset(self._grid_offset + int(delta))
+
+    def scroll_grid_page(self, direction: int):
+        page = max(1, self._ih)
+        self.scroll_grid(int(direction) * page)
+
+    def grid_home(self):
+        self.set_grid_offset(0)
+
+    def grid_end(self):
+        self.set_grid_offset(self._grid_max_offset())
+
+    def grid_move_selected(self, delta: int):
+        count = len(self._grid_rows)
+        if count <= 0:
+            self.set_grid_selected(None)
+            return
+        step = int(delta)
+        cur = self._grid_selected
+        if cur is None:
+            if step < 0:
+                self.set_grid_selected(count - 1)
+            else:
+                self.set_grid_selected(0)
+            return
+        self.set_grid_selected(max(0, min(cur + step, count - 1)))
+
+    def grid_move_selected_page(self, direction: int):
+        page = max(1, self._ih)
+        self.grid_move_selected(int(direction) * page)
+
+    def grid_select_home(self):
+        if not self._grid_rows:
+            self.set_grid_selected(None)
+            return
+        self.set_grid_selected(0)
+
+    def grid_select_end(self):
+        if not self._grid_rows:
+            self.set_grid_selected(None)
+            return
+        self.set_grid_selected(len(self._grid_rows) - 1)
+
+    def handle_grid_navigation_input(self, ch: int) -> bool:
+        if ch == curses.KEY_UP:
+            if self._grid_selection_enabled:
+                self.grid_move_selected(-1)
+            else:
+                self.scroll_grid(-1)
+            return True
+        if ch == curses.KEY_DOWN:
+            if self._grid_selection_enabled:
+                self.grid_move_selected(1)
+            else:
+                self.scroll_grid(1)
+            return True
+        if ch in (curses.KEY_PPAGE, 339):
+            if self._grid_selection_enabled:
+                self.grid_move_selected_page(-1)
+            else:
+                self.scroll_grid_page(-1)
+            return True
+        if ch in (curses.KEY_NPAGE, 338):
+            if self._grid_selection_enabled:
+                self.grid_move_selected_page(1)
+            else:
+                self.scroll_grid_page(1)
+            return True
+        if ch in (curses.KEY_HOME, 262):
+            if self._grid_selection_enabled:
+                self.grid_select_home()
+            else:
+                self.grid_home()
+            return True
+        if ch in (curses.KEY_END, 360):
+            if self._grid_selection_enabled:
+                self.grid_select_end()
+            else:
+                self.grid_end()
+            return True
+        return False
+
+    def ensure_grid_row_visible(self, idx: int):
+        if self._ih <= 0:
+            return
+        row = max(0, min(int(idx), len(self._grid_rows) - 1))
+        if row < self._grid_offset:
+            self._grid_offset = row
+            self._dirty = True
+            return
+        max_visible = self._grid_offset + self._ih - 1
+        if row > max_visible:
+            self._grid_offset = row - self._ih + 1
+            self._dirty = True
+
+    def ensure_grid_selected_visible(self):
+        if self._grid_selected is None:
+            return
+        self.ensure_grid_row_visible(self._grid_selected)
+
+    def initialize(self):
+        super().initialize()
+        self._clamp_grid_state()
+
+    def render_grid(self):
+        ih = self._ih
+        if ih <= 0:
+            return
+        has_focus = self._screen is None or self._screen.focused is self
+        show_scrollbar = (
+            self._grid_show_scrollbar
+            and self._iw > 0
+            and len(self._grid_rows) > ih
+        )
+        content_w = self._iw - 1 if show_scrollbar else self._iw
+        if content_w < 0:
+            content_w = 0
+        start = self._grid_offset
+        end = min(len(self._grid_rows), start + ih)
+        drawn = 0
+        for row_idx in range(start, end):
+            row = self._grid_rows[row_idx]
+            rev_attr = (
+                curses.A_REVERSE
+                if (
+                    self._grid_selection_enabled
+                    and has_focus
+                    and self._grid_selected == row_idx
+                )
+                else 0
+            )
+            x = 0
+            for col_idx, cell in enumerate(row):
+                text = cell.text
+                if col_idx < len(self._grid_col_widths):
+                    width = self._grid_col_widths[col_idx]
+                    if width > 0:
+                        text = text[:width].ljust(width)
+                if x >= content_w:
+                    break
+                if text:
+                    cut = min(len(text), content_w - x)
+                    if cut > 0:
+                        self.cursor = (x, drawn)
+                        self.print(text[:cut], attr=cell.attr | rev_attr)
+                        x += cut
+                if col_idx < len(row) - 1 and self._grid_col_gap > 0 and x < content_w:
+                    gap = min(self._grid_col_gap, content_w - x)
+                    if gap > 0:
+                        self.cursor = (x, drawn)
+                        self.print(" " * gap, attr=rev_attr)
+                        x += gap
+            self.cursor = (x, drawn)
+            if x < content_w:
+                fill = " " * (content_w - x)
+                self.print(fill, attr=rev_attr)
+            self.clear_to_eol()
+            drawn += 1
+        if drawn < ih:
+            self.cursor = (0, drawn)
+            self.clear_to_bottom()
+        if show_scrollbar:
+            self._draw_grid_scrollbar()
+
+    def _grid_max_offset(self) -> int:
+        return max(0, len(self._grid_rows) - self._ih)
+
+    def _clamp_grid_state(self):
+        if self._grid_selected is not None:
+            if not self._grid_rows:
+                self._grid_selected = None
+            elif self._grid_selected >= len(self._grid_rows):
+                self._grid_selected = len(self._grid_rows) - 1
+            elif self._grid_selected < 0:
+                self._grid_selected = 0
+        self._grid_offset = max(0, min(self._grid_offset, self._grid_max_offset()))
+        self.ensure_grid_selected_visible()
+
+    def _draw_grid_scrollbar(self):
+        if self._iw <= 0 or self._ih <= 0:
+            return
+        total = len(self._grid_rows)
+        if total <= self._ih:
+            return
+
+        track_h = self._ih
+        max_offset = max(1, total - self._ih)
+        thumb_h = max(1, (self._ih * self._ih) // total)
+        thumb_h = min(track_h, thumb_h)
+        thumb_top = (self._grid_offset * (track_h - thumb_h)) // max_offset
+
+        x = self._iw - 1
+        track_attr = Color.WINDOW_TITLE.attr()
+        if self._screen is not None and self._screen.focused is self:
+            thumb_attr = Color.FOCUS.attr()
+        else:
+            thumb_attr = Color.WINDOW_TITLE.attr()
+        for y in range(track_h):
+            if thumb_top <= y < thumb_top + thumb_h:
+                self.put_char(x, y, "#", attr=thumb_attr)
+            else:
+                self.put_char(x, y, "|", attr=track_attr)
 
 
 class DialogWidget:

@@ -19,7 +19,7 @@ from .shortcuts import Shortcut, ShortcutLayer
 from .socket import SocketTransport
 from .statusupdater import StatusUpdater
 from .topbar import TopBar
-from .ui import Color, Screen, Window
+from .ui import Color, GridWindow, Screen, Window
 
 
 class AppModeUpdater(Component):
@@ -70,15 +70,15 @@ async def main(scr, socket_path):
     )
 
     wcpu = Window(title="CPU State")
-    wdlist = Window(title="DisplayList")
-    wwatch = Window(title="Watchers")
+    wdlist = GridWindow(title="DisplayList")
+    wwatch = GridWindow(title="Watchers", col_gap=0)
     wscreen = Window(title="Screen Buffer")
     wscreen.add_tag("ATASCII", tag_id="atascii", active=True)
     wscreen.add_tag("ASCII", tag_id="ascii", active=False)
     wdisasm = Window(title="Disassembler")
     wdisasm.add_tag("FOLLOW", tag_id="follow", active=True)
-    whistory = Window(title="History")
-    wbreakpoints = Window(title="Breakpoints")
+    whistory = GridWindow(title="History", col_gap=0)
+    wbreakpoints = GridWindow(title="Breakpoints", col_gap=0)
     wbreakpoints.add_tag("ENABLED", tag_id="bp_enabled", active=False)
     top = Window(border=False)
     bottom = Window(border=False)

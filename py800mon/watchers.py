@@ -7,7 +7,7 @@ from .inputwidget import InputWidget
 from .memorymap import find_symbol_or_addr, lookup_symbol
 from .rpc import RpcException
 from .actions import Actions
-from .ui import Color
+from .ui import Color, GridCell
 
 
 class WatchersViewer(VisualRpcComponent):
@@ -19,7 +19,7 @@ class WatchersViewer(VisualRpcComponent):
         self._input_mode = None
         self._pending_addr = None
         self._pending_row = None
-        self._selected = None
+        self._grid_selected_offset = 0
         self._last_snapshot = None
         self._search_input = InputWidget(
             self.window,
@@ -33,7 +33,7 @@ class WatchersViewer(VisualRpcComponent):
         self.window.on_focus = self.clear_selection
 
     def clear_selection(self):
-        self._selected = None
+        self.window.set_grid_selected(None)
 
     async def update(self):
         ranges = [(row.addr & 0xFFFF, 2) for row in state.watchers]
@@ -97,7 +97,7 @@ class WatchersViewer(VisualRpcComponent):
         snapshot = (
             tuple(watchers),
             pending,
-            self._selected,
+            self._selected_index(),
             state.input_focus,
             state.input_target,
             state.input_buffer,
@@ -112,58 +112,35 @@ class WatchersViewer(VisualRpcComponent):
         return True
 
     def render(self, force_redraw=False):
+        self._render_grid()
+
+    def _render_grid(self):
         ih = self.window._ih
         if ih <= 0:
             return
-        has_focus = self._screen is not None and self._screen.focused is self.window
         input_active = state.input_focus and state.input_target == "watchers"
-        row_base = 1 if input_active else 0
-        max_rows = max(0, ih - row_base)
-        self.window.cursor = (0, row_base)
+        rows = []
+        row_base = 0
+        if input_active:
+            row_base = 1
+            rows.append((GridCell("", Color.TEXT.attr()),))
 
-        rows = list(state.watchers)
-        selected_offset = 0
+        pending_offset = 0
         if self._pending_row is not None:
-            rows.insert(0, self._pending_row)
-            selected_offset = 1
+            pending_offset = 1
+            rows.append(self._row_cells(self._pending_row))
+        for row in state.watchers:
+            rows.append(self._row_cells(row))
 
-        drawn = 0
-        for idx in range(min(len(rows), max_rows)):
-            row = rows[idx]
-            rev_attr = 0
-            if (
-                has_focus
-                and
-                self._selected is not None
-                and idx >= selected_offset
-                and (idx - selected_offset) == self._selected
-            ):
-                rev_attr = curses.A_REVERSE
-            word = ((row.next_value & 0xFF) << 8) | (row.value & 0xFF)
-            self.window.print(
-                f"{row.addr:04X}:", attr=Color.ADDRESS.attr() | rev_attr
-            )
-            self.window.print(
-                f" {row.value:02X} ",
-                attr=Color.TEXT.attr() | rev_attr,
-            )
-            self.window.print(
-                f"{word:04X}",
-                attr=Color.ADDRESS.attr() | rev_attr,
-            )
-            self.window.print(
-                f" {row.value:3d} {row.value:08b} ",
-                attr=Color.TEXT.attr() | rev_attr,
-            )
-            self.window.print(";", attr=Color.TEXT.attr() | rev_attr)
-            self.window.print(row.comment, attr=Color.COMMENT.attr() | rev_attr)
-            self.window.clear_to_eol(inverse=bool(rev_attr))
-            self.window.newline()
-            drawn += 1
-
-        if row_base + drawn < ih:
-            self.window.cursor = (0, row_base + drawn)
-            self.window.clear_to_bottom()
+        selected = self._selected_index()
+        self._grid_selected_offset = row_base + pending_offset
+        if selected is None:
+            self.window.set_grid_selected(None)
+        else:
+            self.window.set_grid_selected(selected + self._grid_selected_offset)
+        self.window.set_grid_column_widths(())
+        self.window.set_grid_rows(rows)
+        self.window.render_grid()
 
         if input_active:
             self.window.cursor = (0, 0)
@@ -187,20 +164,7 @@ class WatchersViewer(VisualRpcComponent):
             self._open_search_input("")
             return True
 
-        if ch in (curses.KEY_UP, curses.KEY_DOWN):
-            if not state.watchers:
-                return True
-            cur = self._selected
-            if cur is None:
-                if ch == curses.KEY_UP:
-                    self._selected = len(state.watchers) - 1
-                else:
-                    self._selected = 0
-                return True
-            if ch == curses.KEY_UP and cur > 0:
-                self._selected = cur - 1
-            elif ch == curses.KEY_DOWN and cur < len(state.watchers) - 1:
-                self._selected = cur + 1
+        if self.window.handle_grid_navigation_input(ch):
             return True
 
         if ch in (curses.KEY_DC, 330):
@@ -283,7 +247,7 @@ class WatchersViewer(VisualRpcComponent):
         rows = list(state.watchers)
         for idx, row in enumerate(rows):
             if row.addr == addr:
-                self._selected = idx
+                self._set_selected_index(idx)
                 self._pending_addr = None
                 self._pending_row = None
                 return
@@ -296,32 +260,63 @@ class WatchersViewer(VisualRpcComponent):
                 comment=lookup_symbol(addr) or "",
             ),
         )
-        self._selected = None
+        self._set_selected_index(None)
         self._dispatcher.update_watchers(rows)
         self._pending_addr = None
         self._pending_row = None
 
     def _delete_selected(self):
-        idx = self._selected
+        idx = self._selected_index()
         rows = list(state.watchers)
         if idx is None or idx < 0 or idx >= len(rows):
             return
         rows.pop(idx)
         self._dispatcher.update_watchers(rows)
         if not rows:
-            self._selected = None
+            self._set_selected_index(None)
         elif idx >= len(rows):
-            self._selected = len(rows) - 1
+            self._set_selected_index(len(rows) - 1)
         else:
-            self._selected = idx
+            self._set_selected_index(idx)
 
     def _clamp_selected(self, row_count: int):
         if row_count <= 0:
-            self._selected = None
+            self._set_selected_index(None)
             return
-        if self._selected is None:
+        cur = self._selected_index()
+        if cur is None:
             return
-        if self._selected < 0:
-            self._selected = 0
-        elif self._selected >= row_count:
-            self._selected = row_count - 1
+        if cur < 0:
+            self._set_selected_index(0)
+            return
+        if cur >= row_count:
+            self._set_selected_index(row_count - 1)
+
+    def _selected_index(self):
+        idx = self.window.grid_selected
+        if idx is None:
+            return None
+        idx = int(idx) - self._grid_selected_offset
+        if idx < 0:
+            return None
+        if idx >= len(state.watchers):
+            return None
+        return idx
+
+    def _set_selected_index(self, idx: int | None):
+        if idx is None or len(state.watchers) == 0:
+            self.window.set_grid_selected(None)
+            return
+        value = max(0, min(int(idx), len(state.watchers) - 1))
+        self.window.set_grid_selected(value + self._grid_selected_offset)
+
+    def _row_cells(self, row: WatcherEntry):
+        word = ((row.next_value & 0xFF) << 8) | (row.value & 0xFF)
+        return (
+            GridCell(f"{row.addr:04X}:", Color.ADDRESS.attr()),
+            GridCell(f" {row.value:02X} ", Color.TEXT.attr()),
+            GridCell(f"{word:04X}", Color.ADDRESS.attr()),
+            GridCell(f" {row.value:3d} {row.value:08b} ", Color.TEXT.attr()),
+            GridCell(";", Color.TEXT.attr()),
+            GridCell(row.comment, Color.COMMENT.attr()),
+        )

@@ -11,18 +11,22 @@ import (
 type HistoryViewer struct {
 	BaseVisualComponent
 	rpc          *RpcClient
+	grid         *GridWindow
 	reverseOrder bool
 	lastSnapshot string
 	nextRow      *DisasmRow
 	decodeCache  map[string]DisasmRow
+	followLive   bool
 }
 
-func NewHistoryViewer(rpc *RpcClient, window *Window, reverseOrder bool) *HistoryViewer {
+func NewHistoryViewer(rpc *RpcClient, window *GridWindow, reverseOrder bool) *HistoryViewer {
 	return &HistoryViewer{
-		BaseVisualComponent: NewBaseVisualComponent(window),
+		BaseVisualComponent: NewBaseVisualComponent(window.Window),
 		rpc:                 rpc,
+		grid:                window,
 		reverseOrder:        reverseOrder,
 		decodeCache:         map[string]DisasmRow{},
+		followLive:          true,
 	}
 }
 
@@ -64,51 +68,58 @@ func buildHistorySnapshot(pc uint16, entries []CpuHistoryEntry, next *DisasmRow)
 
 func (h *HistoryViewer) Render(_force bool) {
 	st := State()
-	w := h.Window()
-	ih := w.Height()
-	if ih <= 0 {
-		return
-	}
-	w.Cursor(0, 0)
-
 	next := h.nextRow
 	if next == nil {
 		row := DisasmRow{Addr: st.CPU.PC, RawText: "", AsmText: st.CPUDisasm}
 		next = &row
 	}
-
+	rows := make([]GridRow, 0, len(st.History)+1)
+	selected := 0
 	if h.reverseOrder {
-		limit := ih - 1
-		if limit < 0 {
-			limit = 0
+		for _, e := range reverseHistory(st.History) {
+			rows = append(rows, h.historyRowCells(e))
 		}
-		rows := st.History
-		if len(rows) > limit {
-			rows = rows[:limit]
-		}
-		rows = reverseHistory(rows)
-		for _, e := range rows {
-			h.printHistoryRow(e)
-		}
-		h.printDecodedRow(*next, AttrReverse())
-		w.FillToEOL(' ', AttrReverse())
-		w.Newline()
+		rows = append(rows, h.decodedRowCells(*next))
+		selected = len(rows) - 1
 	} else {
-		h.printDecodedRow(*next, AttrReverse())
-		w.FillToEOL(' ', AttrReverse())
-		w.Newline()
-		rows := st.History
-		if len(rows) > ih-1 {
-			rows = rows[:ih-1]
+		rows = append(rows, h.decodedRowCells(*next))
+		for _, e := range st.History {
+			rows = append(rows, h.historyRowCells(e))
 		}
-		for _, e := range rows {
-			h.printHistoryRow(e)
-		}
+		selected = 0
 	}
-	w.ClearToBottom()
+	h.grid.SetGridColumnWidths(nil)
+	h.grid.SetGridRows(rows)
+	if len(rows) == 0 {
+		h.grid.SetGridSelected(nil)
+	} else if h.followLive {
+		h.grid.SetGridSelected(&selected)
+	} else if _, ok := h.grid.GridSelected(); !ok {
+		h.grid.SetGridSelected(&selected)
+	}
+	h.grid.RenderGrid()
 }
 
-func (h *HistoryViewer) printHistoryRow(entry CpuHistoryEntry) {
+func (h *HistoryViewer) HandleInput(ch int) bool {
+	if State().InputFocus {
+		return false
+	}
+	w := h.Window()
+	if w == nil || w.screen == nil || w.screen.Focused() != w {
+		return false
+	}
+	if !h.grid.HandleGridNavigationInput(ch) {
+		return false
+	}
+	if h.reverseOrder {
+		h.followLive = ch == KeyEnd() || ch == 360
+	} else {
+		h.followLive = ch == KeyHome() || ch == 262
+	}
+	return true
+}
+
+func (h *HistoryViewer) decodeHistoryRow(entry CpuHistoryEntry) DisasmRow {
 	key := fmt.Sprintf("%04X-%02X-%02X-%02X", entry.PC, entry.Op0, entry.Op1, entry.Op2)
 	row, ok := h.decodeCache[key]
 	if !ok {
@@ -122,17 +133,20 @@ func (h *HistoryViewer) printHistoryRow(entry CpuHistoryEntry) {
 			h.decodeCache = map[string]DisasmRow{}
 		}
 	}
-	h.printDecodedRow(row, 0)
-	h.Window().ClearToEOL(false)
-	h.Window().Newline()
+	return row
 }
 
-func (h *HistoryViewer) printDecodedRow(row DisasmRow, rev int) {
-	w := h.Window()
-	w.Print(formatHex16(row.Addr)+":", ColorAddress.Attr()|rev, false)
-	w.Print(" ", rev, false)
-	w.Print(padRight(row.RawText, 8)+" ", rev, false)
-	printAsmRow(w, row, rev)
+func (h *HistoryViewer) historyRowCells(entry CpuHistoryEntry) GridRow {
+	return h.decodedRowCells(h.decodeHistoryRow(entry))
+}
+
+func (h *HistoryViewer) decodedRowCells(row DisasmRow) GridRow {
+	cells := make(GridRow, 0, 6)
+	cells = append(cells, GridCell{Text: formatHex16(row.Addr) + ":", Attr: ColorAddress.Attr()})
+	cells = append(cells, GridCell{Text: " ", Attr: ColorText.Attr()})
+	cells = append(cells, GridCell{Text: padRight(row.RawText, 8) + " ", Attr: ColorText.Attr()})
+	cells = append(cells, asmRowCells(row)...)
+	return cells
 }
 
 func disasmToRow(ins disasm.DecodedInstruction) DisasmRow {

@@ -4,7 +4,7 @@ from .app import VisualRpcComponent
 from .appstate import state, store
 from .datastructures import DisplayList, DisplayListEntry
 from .rpc import RpcException
-from .ui import Color
+from .ui import Color, GridCell
 
 DMACTL_ADDR = 0x022F
 DMACTL_HW_ADDR = 0xD400
@@ -219,36 +219,79 @@ class DisplayListViewer(VisualRpcComponent):
             return True
 
     def render(self, force_redraw=False):
+        self._render_grid()
+
+    def _render_grid(self):
+        if state.displaylist_inspect:
+            segs = state.dlist.screen_segments(self._dmactl)
+            rows = []
+            for start, end, mode in segs:
+                length = end - start
+                last = (end - 1) & 0xFFFF
+                rows.append(
+                    (
+                        GridCell(f"{start:04X}-{last:04X}", Color.ADDRESS.attr()),
+                        GridCell(f"len={length:04X} antic={mode}", Color.TEXT.attr()),
+                    )
+                )
+            selected = state.dlist_selected_region
+            if selected is not None and not (0 <= selected < len(rows)):
+                selected = None
+            self.window.set_grid_column_widths((9, 0))
+            self.window.set_grid_rows(rows)
+            self.window.set_grid_selected(selected)
+            self.window.render_grid()
+            return
+        rows = []
+        for count, entry in state.dlist.compacted_entries():
+            if count > 1:
+                desc = f"{count}x {entry.description}"
+            else:
+                desc = entry.description
+            rows.append(
+                (
+                    GridCell(f"{entry.addr:04X}:", Color.ADDRESS.attr()),
+                    GridCell(desc, Color.TEXT.attr()),
+                )
+            )
+        self.window.set_grid_column_widths((5, 0))
+        self.window.set_grid_rows(rows)
+        if rows and self.window.grid_selected is None:
+            self.window.set_grid_selected(0)
+        self.window.render_grid()
+
+    def handle_input(self, ch):
+        if state.input_focus:
+            return False
+        if self.window._screen is None or self.window._screen.focused is not self.window:
+            return False
+
         if state.displaylist_inspect:
             segs = state.dlist.screen_segments(self._dmactl)
             if not segs:
-                self.window.clear_to_bottom()
-                return
-            for idx, (start, end, mode) in enumerate(segs):
-                length = end - start
-                last = (end - 1) & 0xFFFF
-                attr = curses.A_REVERSE if idx == state.dlist_selected_region else 0
-                self.window.print_line(
-                    f"{start:04X}-{last:04X} len={length:04X} antic={mode}",
-                    attr=attr,
-                )
-                if idx == state.dlist_selected_region:
-                    self.window.clear_to_eol(inverse=True)
-                else:
-                    self.window.clear_to_eol()
-            self.window.clear_to_bottom()
-            return
-        entries = (
-            (
-                (f"{entry.addr:04X}:", f" {count}x {entry.description}")
-                if count > 1
-                else (f"{entry.addr:04X}:", f" {entry.description}")
-            )
-            for count, entry in state.dlist.compacted_entries()
-        )
-        for addr, desc in entries:
-            self.window.print(addr, attr=Color.ADDRESS.attr())
-            self.window.print(desc)
-            self.window.clear_to_eol()
-            self.window.newline()
-        self.window.clear_to_bottom()
+                return True
+            cur = state.dlist_selected_region
+            if cur is None:
+                cur = 0
+            page = max(1, self.window._ih)
+            if ch == curses.KEY_UP:
+                store.set_dlist_selected_region(max(0, cur - 1))
+                return True
+            if ch == curses.KEY_DOWN:
+                store.set_dlist_selected_region(min(len(segs) - 1, cur + 1))
+                return True
+            if ch in (curses.KEY_PPAGE, 339):
+                store.set_dlist_selected_region(max(0, cur - page))
+                return True
+            if ch in (curses.KEY_NPAGE, 338):
+                store.set_dlist_selected_region(min(len(segs) - 1, cur + page))
+                return True
+            if ch in (curses.KEY_HOME, 262):
+                store.set_dlist_selected_region(0)
+                return True
+            if ch in (curses.KEY_END, 360):
+                store.set_dlist_selected_region(len(segs) - 1)
+                return True
+            return False
+
+        return self.window.handle_grid_navigation_input(ch)

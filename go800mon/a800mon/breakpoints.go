@@ -58,6 +58,7 @@ var bpOrWordRe = regexp.MustCompile(`(?i)\bOR\b`)
 type BreakpointsViewer struct {
 	BaseVisualComponent
 	rpc              *RpcClient
+	grid             *GridWindow
 	screen           *Screen
 	dispatcher       *ActionDispatcher
 	lastSnapshot     string
@@ -78,13 +79,14 @@ type BreakpointsViewer struct {
 	inputWidget      *InputWidget
 }
 
-func NewBreakpointsViewer(rpc *RpcClient, window *Window) *BreakpointsViewer {
+func NewBreakpointsViewer(rpc *RpcClient, window *GridWindow) *BreakpointsViewer {
 	v := &BreakpointsViewer{
-		BaseVisualComponent: NewBaseVisualComponent(window),
+		BaseVisualComponent: NewBaseVisualComponent(window.Window),
 		rpc:                 rpc,
+		grid:                window,
 	}
-	v.clearDialog = NewDialogWidget(window)
-	v.inputWidget = NewInputWidget(window)
+	v.clearDialog = NewDialogWidget(window.Window)
+	v.inputWidget = NewInputWidget(window.Window)
 	v.inputWidget.SetOnChange(v.onInputChange)
 	return v
 }
@@ -178,27 +180,46 @@ func (v *BreakpointsViewer) Update(ctx context.Context) (bool, error) {
 func (v *BreakpointsViewer) Render(_force bool) {
 	st := State()
 	w := v.Window()
+	g := v.grid
 	ih := w.Height()
 	if ih <= 0 {
 		return
 	}
-	hasFocus := v.screen != nil && v.screen.Focused() == v.Window()
 	dialogActive := v.clearDialog != nil && v.clearDialog.Active()
 	inputActive := st.InputFocus && st.InputTarget == "breakpoints"
 	rowBase := 0
 	if inputActive || dialogActive {
 		rowBase = 1
 	}
-	maxRows := ih - rowBase
-	if maxRows < 0 {
-		maxRows = 0
-	}
-	w.Cursor(0, rowBase)
 	w.SetTagActive("bp_enabled", st.BreakpointsEnabled)
+	rows := make([]GridRow, 0, len(st.Breakpoints)+2)
+	if rowBase > 0 {
+		rows = append(rows, GridRow{{Text: "", Attr: ColorText.Attr()}})
+	}
+
+	if len(st.Breakpoints) == 0 {
+		rows = append(rows, GridRow{{Text: "No breakpoint clauses.", Attr: ColorComment.Attr()}})
+		g.SetGridSelected(nil)
+	} else {
+		for i, clause := range st.Breakpoints {
+			cells := make([]GridCell, 0, 16)
+			cells = append(cells, GridCell{Text: fmt.Sprintf("#%02d ", i+1), Attr: ColorAddress.Attr()})
+			cells = append(cells, v.clauseCells(clause)...)
+			rows = append(rows, cells)
+		}
+		if v.selected == nil {
+			g.SetGridSelected(nil)
+		} else {
+			idx := *v.selected + rowBase
+			g.SetGridSelected(&idx)
+		}
+	}
+	g.SetGridColumnWidths(nil)
+	g.SetGridRows(rows)
+	g.RenderGrid()
 
 	if dialogActive {
 		v.clearDialog.Render()
-		w.Cursor(0, rowBase)
 	} else if inputActive {
 		w.Cursor(0, 0)
 		color := ColorText
@@ -208,33 +229,6 @@ func (v *BreakpointsViewer) Render(_force bool) {
 		attr := color.Attr() | AttrReverse()
 		w.Print(st.InputBuffer, attr, false)
 		w.FillToEOL(' ', attr)
-		w.Cursor(0, rowBase)
-	}
-
-	if len(st.Breakpoints) == 0 {
-		if maxRows > 0 {
-			w.Cursor(0, rowBase)
-			w.Print("No breakpoint clauses.", ColorComment.Attr(), false)
-			w.ClearToEOL(false)
-			w.Newline()
-			w.ClearToBottom()
-		}
-		return
-	}
-	drawn := 0
-	for i := 0; i < len(st.Breakpoints) && i < maxRows; i++ {
-		rev := 0
-		if hasFocus && v.selected != nil && *v.selected == i {
-			rev = AttrReverse()
-		}
-		w.Print(fmt.Sprintf("#%02d ", i+1), ColorAddress.Attr()|rev, false)
-		v.printClause(st.Breakpoints[i], rev)
-		w.ClearToEOL(false)
-		w.Newline()
-		drawn++
-	}
-	if drawn < maxRows {
-		w.ClearToBottom()
 	}
 }
 
@@ -263,26 +257,13 @@ func (v *BreakpointsViewer) HandleInput(ch int) bool {
 		v.openInput("")
 		return true
 	}
-	if ch == KeyUp() || ch == KeyDown() {
-		if len(st.Breakpoints) == 0 {
-			return true
-		}
-		if v.selected == nil {
-			idx := 0
-			if ch == KeyUp() {
-				idx = len(st.Breakpoints) - 1
-			}
+	if v.grid.HandleGridNavigationInput(ch) {
+		idx, ok := v.grid.GridSelected()
+		if !ok {
+			v.selected = nil
+		} else {
 			v.selected = &idx
-			return true
-		}
-		idx := *v.selected
-		if ch == KeyUp() && idx > 0 {
-			idx--
-			v.selected = &idx
-		}
-		if ch == KeyDown() && idx < len(st.Breakpoints)-1 {
-			idx++
-			v.selected = &idx
+			v.clampSelected(len(st.Breakpoints))
 		}
 		return true
 	}
@@ -302,30 +283,34 @@ func (v *BreakpointsViewer) HandleInput(ch int) bool {
 	return false
 }
 
-func (v *BreakpointsViewer) printClause(clause BreakpointClauseRow, rev int) {
+func (v *BreakpointsViewer) clauseCells(clause BreakpointClauseRow) []GridCell {
+	cells := make([]GridCell, 0, len(clause.Conditions)*4)
 	for i, cond := range clause.Conditions {
 		if i > 0 {
-			v.Window().Print(" AND ", ColorText.Attr()|rev, false)
+			cells = append(cells, GridCell{Text: " AND ", Attr: ColorText.Attr()})
 		}
-		v.printCondition(cond, rev)
+		cells = append(cells, v.conditionCells(cond)...)
 	}
+	return cells
 }
 
-func (v *BreakpointsViewer) printCondition(cond BreakpointConditionRow, rev int) {
+func (v *BreakpointsViewer) conditionCells(cond BreakpointConditionRow) []GridCell {
+	cells := make([]GridCell, 0, 5)
 	op := bpOpSymbol(cond.Op)
 	if cond.CondType == 9 {
-		v.Window().Print("mem[", ColorText.Attr()|rev, false)
-		v.Window().Print(formatHex16(cond.Addr), ColorAddress.Attr()|rev, false)
-		v.Window().Print("]", ColorText.Attr()|rev, false)
+		cells = append(cells, GridCell{Text: "mem[", Attr: ColorText.Attr()})
+		cells = append(cells, GridCell{Text: formatHex16(cond.Addr), Attr: ColorAddress.Attr()})
+		cells = append(cells, GridCell{Text: "]", Attr: ColorText.Attr()})
 	} else {
-		v.Window().Print(bpTypeName(cond.CondType), ColorText.Attr()|rev, false)
+		cells = append(cells, GridCell{Text: bpTypeName(cond.CondType), Attr: ColorText.Attr()})
 	}
-	v.Window().Print(" "+op+" ", ColorText.Attr()|rev, false)
+	cells = append(cells, GridCell{Text: " " + op + " ", Attr: ColorText.Attr()})
 	if cond.CondType == 2 || cond.CondType == 3 || cond.CondType == 4 || cond.CondType == 5 {
-		v.Window().Print(fmt.Sprintf("%02X", cond.Value), ColorAddress.Attr()|rev, false)
-		return
+		cells = append(cells, GridCell{Text: fmt.Sprintf("%02X", cond.Value), Attr: ColorAddress.Attr()})
+		return cells
 	}
-	v.Window().Print(formatHex16(cond.Value), ColorAddress.Attr()|rev, false)
+	cells = append(cells, GridCell{Text: formatHex16(cond.Value), Attr: ColorAddress.Attr()})
+	return cells
 }
 
 func (v *BreakpointsViewer) queueDeleteSelected() {
