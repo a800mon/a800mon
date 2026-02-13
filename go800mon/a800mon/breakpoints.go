@@ -294,7 +294,7 @@ func (v *BreakpointsViewer) HandleInput(ch int) bool {
 		v.clearDialog.Activate("Clear all breakpoints?", "YES")
 		return true
 	}
-	if ch == int('e') || ch == int('E') {
+	if ch == int(' ') || ch == int('e') || ch == int('E') {
 		enabled := !st.BreakpointsEnabled
 		v.pendingEnabled = &enabled
 		return true

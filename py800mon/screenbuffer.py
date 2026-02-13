@@ -45,6 +45,10 @@ class ScreenBufferInspector(VisualRpcComponent):
         self._cy = 0
         self._dmactl = 0
         self._last_use_atascii = None
+        self._screen = None
+
+    def bind_input(self, screen):
+        self._screen = screen
 
     @property
     def cols(self):
@@ -93,6 +97,16 @@ class ScreenBufferInspector(VisualRpcComponent):
 
     def is_inspecting(self) -> bool:
         return self._inspect
+
+    def handle_input(self, ch):
+        if state.input_focus:
+            return False
+        if self._screen is None or not self._screen.focused == self.window:
+            return False
+        if not ch == ord(" "):
+            return False
+        store.set_use_atascii(not state.use_atascii)
+        return True
 
     @property
     def cursor(self) -> tuple[int, int]:

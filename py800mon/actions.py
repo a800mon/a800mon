@@ -1,5 +1,4 @@
 import enum
-import curses
 
 from .app import Component, InputComponent, StopLoop
 from .appstate import AppMode, state, store
@@ -18,15 +17,12 @@ class Actions(enum.Enum):
     COLDSTART = enum.auto()
     WARMSTART = enum.auto()
     TERMINATE = enum.auto()
-    SET_DLIST_INSPECT = enum.auto()
     SET_ATASCII = enum.auto()
     SET_DISASSEMBLY = enum.auto()
     SET_DISASSEMBLY_ADDR = enum.auto()
     SET_INPUT_FOCUS = enum.auto()
     SET_INPUT_TARGET = enum.auto()
     SET_INPUT_BUFFER = enum.auto()
-    DLIST_NEXT = enum.auto()
-    DLIST_PREV = enum.auto()
     QUIT = enum.auto()
 
 
@@ -92,14 +88,6 @@ class ActionDispatcher(Component):
             self._enqueue_rpc(Command.STOP_EMULATOR)
             self.dispatch(Actions.EXIT_SHUTDOWN)
             return
-        if action == Actions.SET_DLIST_INSPECT:
-            new_val = bool(value)
-            store.set_displaylist_inspect(new_val)
-            if not new_val:
-                store.set_dlist_selected_region(None)
-            elif state.dlist_selected_region is None:
-                store.set_dlist_selected_region(0)
-            return
         if action == Actions.SET_ATASCII:
             store.set_use_atascii(bool(value))
             return
@@ -117,19 +105,6 @@ class ActionDispatcher(Component):
             return
         if action == Actions.SET_INPUT_BUFFER:
             store.set_input_buffer(str(value))
-            return
-        if action == Actions.DLIST_NEXT:
-            if not state.displaylist_inspect:
-                return
-            store.set_dlist_selected_region((state.dlist_selected_region or 0) + 1)
-            return
-        if action == Actions.DLIST_PREV:
-            if not state.displaylist_inspect:
-                return
-            new_idx = (state.dlist_selected_region or 0) - 1
-            if new_idx < 0:
-                new_idx = 0
-            store.set_dlist_selected_region(new_idx)
             return
         if action == Actions.QUIT:
             raise StopLoop
@@ -186,28 +161,11 @@ class ShortcutInput(InputComponent):
     def handle_input(self, ch):
         if state.input_focus:
             return False
-        if self._shortcuts.has_global(ch):
-            self._shortcuts.get_global(ch).callback()
-            return True
-
         layer = self._shortcuts.get(state.active_mode)
         if layer and layer.has(ch):
             layer.get(ch).callback()
             return True
-
-        lower_ch = ch
-        if ord("A") <= ch <= ord("Z"):
-            lower_ch = ch + 32
-        if state.displaylist_inspect and lower_ch in (ord("j"), ord("k")):
-            if lower_ch == ord("j"):
-                self._dispatcher.dispatch(Actions.DLIST_NEXT)
-            else:
-                self._dispatcher.dispatch(Actions.DLIST_PREV)
-            return True
-        if state.displaylist_inspect and ch in (curses.KEY_UP, curses.KEY_DOWN):
-            if ch == curses.KEY_DOWN:
-                self._dispatcher.dispatch(Actions.DLIST_NEXT)
-            else:
-                self._dispatcher.dispatch(Actions.DLIST_PREV)
+        if self._shortcuts.has_global(ch):
+            self._shortcuts.get_global(ch).callback()
             return True
         return False

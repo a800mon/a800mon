@@ -201,7 +201,7 @@ func (d *DisassemblyViewer) HandleInput(ch int) bool {
 	if ch >= int('A') && ch <= int('Z') {
 		lower = ch + 32
 	}
-	if lower == int('f') {
+	if ch == int(' ') || lower == int('f') {
 		d.follow = !d.follow
 		d.Window().SetTagActive("follow", d.follow)
 		return true

@@ -199,6 +199,9 @@ async def main(scr, socket_path):
         bottom.reshape(x=0, y=h - 1, w=w, h=1)
 
     screen = Screen(scr, layout_initializer=init_screen)
+    screen.set_focus_order(
+        [wdlist, wwatch, wscreen, wdisasm, whistory, wbreakpoints]
+    )
     app = App(
         screen=screen,
         status_updater=status_updater,
@@ -224,6 +227,7 @@ async def main(scr, socket_path):
             Actions.SET_INPUT_BUFFER, text
         ),
     )
+    screen_inspector.bind_input(screen)
     watchers_view.bind_input(screen, dispatcher)
     breakpoints_view.bind_input(screen)
     breakpoints_view.attach_dispatcher(dispatcher)
@@ -283,11 +287,6 @@ async def main(scr, socket_path):
         shortcuts.add(AppMode.DEBUG, debug)
         shortcuts.add(AppMode.SHUTDOWN, shutdown)
 
-        def toggle_dlist():
-            new_val = not state.displaylist_inspect
-            dispatcher.dispatch(Actions.SET_DLIST_INSPECT, new_val)
-            screen.focus(wdlist if new_val else None)
-
         def toggle_disassembly():
             if not wdisasm.visible:
                 if state.disassembly_addr is None:
@@ -318,6 +317,12 @@ async def main(scr, socket_path):
             else:
                 screen.focus(wbreakpoints)
 
+        def focus_screen_buffer():
+            if screen.focused is wscreen:
+                screen.focus(None)
+            else:
+                screen.focus(wscreen)
+
         def add_window_hotkey(window, key, label, callback):
             shortcut = Shortcut(
                 key,
@@ -328,16 +333,30 @@ async def main(scr, socket_path):
             shortcuts.add_global(shortcut)
             window.set_hotkey_label(shortcut.key_as_text())
 
-        shortcuts.add_global(Shortcut("s", "Toggle DLIST", toggle_dlist))
+        add_window_hotkey(wdlist, "l", "DisplayList", lambda: screen.focus(
+            None if screen.focused is wdlist else wdlist
+        ))
+        add_window_hotkey(whistory, "h", "History", lambda: screen.focus(
+            None if screen.focused is whistory else whistory
+        ))
+        add_window_hotkey(wscreen, "s", "Screen Buffer", focus_screen_buffer)
         add_window_hotkey(wwatch, "w", "Watchers", focus_watchers)
         add_window_hotkey(wbreakpoints, "b", "Breakpoints", focus_breakpoints)
         add_window_hotkey(wdisasm, "d", "Disassembly", toggle_disassembly)
         shortcuts.add_global(
             Shortcut(
                 9,
-                "ATASCII/ASCII",
-                lambda: dispatcher.dispatch(
-                    Actions.SET_ATASCII, not state.use_atascii),
+                "Next window",
+                screen.focus_next,
+                visible_in_global_bar=False,
+            )
+        )
+        shortcuts.add_global(
+            Shortcut(
+                curses.KEY_BTAB,
+                "Previous window",
+                screen.focus_prev,
+                visible_in_global_bar=False,
             )
         )
         shortcuts.add_global(action("q", "Quit", Actions.QUIT))

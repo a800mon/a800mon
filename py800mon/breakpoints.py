@@ -314,7 +314,7 @@ class BreakpointsViewer(VisualRpcComponent):
         if ch in (ord("c"), ord("C")):
             self._clear_dialog.activate("Clear all breakpoints?", "YES")
             return True
-        if ch in (ord("e"), ord("E")):
+        if ch == ord(" ") or ch in (ord("e"), ord("E")):
             self._pending_enabled = not state.breakpoints_enabled
             return True
         return False

@@ -24,6 +24,7 @@ static int g_key_end() { return KEY_END; }
 static int g_key_enter() { return KEY_ENTER; }
 static int g_key_backspace() { return KEY_BACKSPACE; }
 static int g_key_dc() { return KEY_DC; }
+static int g_key_btab() { return KEY_BTAB; }
 static int g_attr_reverse() { return A_REVERSE; }
 static int g_attr_bold() { return A_BOLD; }
 static int g_attr_dim() { return A_DIM; }
@@ -62,9 +63,11 @@ import (
 type Screen struct {
 	scr               *C.WINDOW
 	windows           []*Window
+	focusOrder        []*Window
 	layoutInitializer func(*Screen)
 	initialized       bool
 	focused           *Window
+	focusIndex        int
 }
 
 type Window struct {
@@ -129,7 +132,7 @@ const (
 )
 
 func NewScreen(layoutInitializer func(*Screen)) *Screen {
-	return &Screen{layoutInitializer: layoutInitializer}
+	return &Screen{layoutInitializer: layoutInitializer, focusIndex: -1}
 }
 
 func (s *Screen) Initialize() {
@@ -171,12 +174,36 @@ func (s *Screen) Add(window *Window) {
 	s.windows = append(s.windows, window)
 }
 
+func (s *Screen) SetFocusOrder(windows ...*Window) {
+	order := make([]*Window, 0, len(windows))
+	for _, window := range windows {
+		if window == nil {
+			continue
+		}
+		order = append(order, window)
+	}
+	s.focusOrder = order
+	s.focusIndex = -1
+}
+
 func (s *Screen) Focus(window *Window) {
 	old := s.focused
 	if old == window {
 		return
 	}
 	s.focused = window
+	order := s.focusCycleWindows()
+	if window == nil {
+		s.focusIndex = -1
+	} else {
+		s.focusIndex = -1
+		for i, candidate := range order {
+			if candidate == window {
+				s.focusIndex = i
+				break
+			}
+		}
+	}
 	if old != nil && old.onBlur != nil {
 		old.onBlur()
 	}
@@ -189,6 +216,47 @@ func (s *Screen) Focus(window *Window) {
 	if window != nil {
 		window.Redraw()
 	}
+}
+
+func (s *Screen) FocusNext() {
+	s.focusStep(1)
+}
+
+func (s *Screen) FocusPrev() {
+	s.focusStep(-1)
+}
+
+func (s *Screen) focusStep(step int) {
+	order := s.focusCycleWindows()
+	total := len(order)
+	if total <= 0 {
+		return
+	}
+	idx := s.focusIndex
+	if idx < 0 || idx >= total {
+		if step > 0 {
+			idx = -1
+		} else {
+			idx = 0
+		}
+	}
+	for i := 0; i < total; i++ {
+		idx = (idx + step + total) % total
+		window := order[idx]
+		if !window.visible {
+			continue
+		}
+		s.Focus(window)
+		return
+	}
+	s.Focus(nil)
+}
+
+func (s *Screen) focusCycleWindows() []*Window {
+	if len(s.focusOrder) > 0 {
+		return s.focusOrder
+	}
+	return s.windows
 }
 
 func (s *Screen) Focused() *Window {
@@ -735,6 +803,7 @@ func KeyEnd() int       { return int(C.g_key_end()) }
 func KeyEnter() int     { return int(C.g_key_enter()) }
 func KeyBackspace() int { return int(C.g_key_backspace()) }
 func KeyDelete() int    { return int(C.g_key_dc()) }
+func KeyBackTab() int   { return int(C.g_key_btab()) }
 
 func runeLen(s string) int {
 	return len([]rune(s))

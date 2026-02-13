@@ -101,6 +101,7 @@ func RunMonitor(ctx context.Context, socketPath string) error {
 	wbreakpoints.AddTag("ENABLED", "bp_enabled", false)
 	top := NewWindow("", false)
 	bottom := NewWindow("", false)
+	screen.SetFocusOrder(wdlist, wwatch, wscreen, wdisasm, whistory, wbreakpoints)
 
 	statusUpdater := NewStatusUpdater(rpc, dispatcher, 200*time.Millisecond, 50*time.Millisecond)
 	dispatcher.SetAfterRPC(statusUpdater.RequestRefresh)
@@ -217,10 +218,11 @@ func RunMonitor(ctx context.Context, socketPath string) error {
 	app := NewApp(screen, statusUpdater, 20)
 	breakpointsWindowUpdater := NewBreakpointsWindowUpdater(app, screen, wbreakpoints)
 	disassemblyView.BindInput(screen, dispatcher)
+	screenInspector.BindInput(screen)
 	watchersView.BindInput(screen, dispatcher)
 	breakpointsView.BindInput(screen, dispatcher)
 
-	buildShortcuts(dispatcher, screen, wdlist, wwatch, wbreakpoints, wdisasm, app, disassemblyView)
+	buildShortcuts(dispatcher, screen, wdlist, whistory, wscreen, wwatch, wbreakpoints, wdisasm, app, disassemblyView)
 	inputProcessor := NewShortcutInput(shortcuts, dispatcher)
 
 	app.AddComponent(dispatcher)
@@ -240,7 +242,7 @@ func RunMonitor(ctx context.Context, socketPath string) error {
 	return app.Loop(ctx)
 }
 
-func buildShortcuts(dispatcher *ActionDispatcher, screen *Screen, wdlist, wwatch, wbreakpoints, wdisasm *Window, app *App, disassemblyView *DisassemblyViewer) {
+func buildShortcuts(dispatcher *ActionDispatcher, screen *Screen, wdlist, whistory, wscreen, wwatch, wbreakpoints, wdisasm *Window, app *App, disassemblyView *DisassemblyViewer) {
 	action := func(key int, label string, a Action) Shortcut {
 		return NewShortcut(key, label, func() { _ = dispatcher.Dispatch(a, nil) })
 	}
@@ -282,16 +284,6 @@ func buildShortcuts(dispatcher *ActionDispatcher, screen *Screen, wdlist, wwatch
 	_ = shortcuts.Add(AppModeDebug, debug)
 	_ = shortcuts.Add(AppModeShutdown, shutdown)
 
-	toggleDList := func() {
-		st := State()
-		newVal := !st.DisplayListInspect
-		_ = dispatcher.Dispatch(ActionSetDListInspect, newVal)
-		if newVal {
-			screen.Focus(wdlist)
-		} else {
-			screen.Focus(nil)
-		}
-	}
 	toggleDisasm := func() {
 		st := State()
 		if !wdisasm.Visible() {
@@ -318,6 +310,27 @@ func buildShortcuts(dispatcher *ActionDispatcher, screen *Screen, wdlist, wwatch
 		}
 		screen.Focus(wwatch)
 	}
+	focusDisplayList := func() {
+		if screen.Focused() == wdlist {
+			screen.Focus(nil)
+			return
+		}
+		screen.Focus(wdlist)
+	}
+	focusHistory := func() {
+		if screen.Focused() == whistory {
+			screen.Focus(nil)
+			return
+		}
+		screen.Focus(whistory)
+	}
+	focusScreenBuffer := func() {
+		if screen.Focused() == wscreen {
+			screen.Focus(nil)
+			return
+		}
+		screen.Focus(wscreen)
+	}
 	focusBreakpoints := func() {
 		if !wbreakpoints.Visible() {
 			return
@@ -336,13 +349,17 @@ func buildShortcuts(dispatcher *ActionDispatcher, screen *Screen, wdlist, wwatch
 		window.SetHotkeyLabel(shortcut.KeyAsText())
 	}
 
-	_ = shortcuts.AddGlobal(NewShortcut(int('s'), "Toggle DLIST", toggleDList))
+	addWindowHotkey(wdlist, int('l'), "DisplayList", focusDisplayList)
+	addWindowHotkey(whistory, int('h'), "History", focusHistory)
+	addWindowHotkey(wscreen, int('s'), "Screen Buffer", focusScreenBuffer)
 	addWindowHotkey(wwatch, int('w'), "Watchers", focusWatchers)
 	addWindowHotkey(wbreakpoints, int('b'), "Breakpoints", focusBreakpoints)
 	addWindowHotkey(wdisasm, int('d'), "Disassembly", toggleDisasm)
-	_ = shortcuts.AddGlobal(NewShortcut(9, "ATASCII/ASCII", func() {
-		st := State()
-		_ = dispatcher.Dispatch(ActionSetATASCII, !st.UseATASCII)
-	}))
+	nextWindow := NewShortcut(9, "Next window", screen.FocusNext)
+	nextWindow.VisibleInGlobalBar = false
+	_ = shortcuts.AddGlobal(nextWindow)
+	prevWindow := NewShortcut(KeyBackTab(), "Previous window", screen.FocusPrev)
+	prevWindow.VisibleInGlobalBar = false
+	_ = shortcuts.AddGlobal(prevWindow)
 	_ = shortcuts.AddGlobal(action(int('q'), "Quit", ActionQuit))
 }

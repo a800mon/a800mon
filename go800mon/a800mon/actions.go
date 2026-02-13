@@ -16,7 +16,6 @@ const (
 	ActionColdStart
 	ActionWarmStart
 	ActionTerminate
-	ActionSetDListInspect
 	ActionSetATASCII
 	ActionSetDisassembly
 	ActionSetDisassemblyAddr
@@ -27,8 +26,6 @@ const (
 	ActionCommitWatcherPending
 	ActionRemoveSelectedWatcher
 	ActionSetWatcherSelected
-	ActionDListNext
-	ActionDListPrev
 	ActionQuit
 )
 
@@ -98,12 +95,6 @@ func (d *ActionDispatcher) Dispatch(action Action, value any) error {
 	case ActionTerminate:
 		d.enqueue(CmdStopEmulator)
 		return d.Dispatch(ActionExitShutdown, nil)
-	case ActionSetDListInspect:
-		v := false
-		if b, ok := value.(bool); ok {
-			v = b
-		}
-		store.setDisplayListInspect(v)
 	case ActionSetATASCII:
 		v := false
 		if b, ok := value.(bool); ok {
@@ -203,29 +194,6 @@ func (d *ActionDispatcher) Dispatch(action Action, value any) error {
 			idx := v
 			store.setWatcherSelected(&idx)
 		}
-	case ActionDListNext:
-		if !st.DisplayListInspect {
-			break
-		}
-		n := 0
-		if st.DListSelectedRegion != nil {
-			n = *st.DListSelectedRegion
-		}
-		n++
-		store.setDListSelectedRegion(&n)
-	case ActionDListPrev:
-		if !st.DisplayListInspect {
-			break
-		}
-		n := 0
-		if st.DListSelectedRegion != nil {
-			n = *st.DListSelectedRegion
-		}
-		n--
-		if n < 0 {
-			n = 0
-		}
-		store.setDListSelectedRegion(&n)
 	case ActionQuit:
 		d.stopLoop = true
 	}

@@ -14,6 +14,7 @@ import (
 type ScreenBufferInspector struct {
 	BaseVisualComponent
 	rpc            *RpcClient
+	screen         *Screen
 	lastUseATASCII bool
 	lastSnapshot   string
 }
@@ -26,6 +27,24 @@ type rowRangeIndex struct {
 
 func NewScreenBufferInspector(rpc *RpcClient, window *Window) *ScreenBufferInspector {
 	return &ScreenBufferInspector{BaseVisualComponent: NewBaseVisualComponent(window), rpc: rpc}
+}
+
+func (s *ScreenBufferInspector) BindInput(screen *Screen) {
+	s.screen = screen
+}
+
+func (s *ScreenBufferInspector) HandleInput(ch int) bool {
+	if State().InputFocus {
+		return false
+	}
+	if s.screen == nil || !(s.screen.Focused() == s.Window()) {
+		return false
+	}
+	if !(ch == int(' ')) {
+		return false
+	}
+	store.setUseATASCII(!State().UseATASCII)
+	return true
 }
 
 func (s *ScreenBufferInspector) Update(ctx context.Context) (bool, error) {

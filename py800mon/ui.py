@@ -6,9 +6,11 @@ class Screen:
     def __init__(self, scr, layout_initializer=None):
         self.scr = scr
         self.windows = []
+        self._focus_order = []
         self.layout_initializer = layout_initializer
         self._initialized = False
         self.focused = None
+        self._focus_index = -1
         self.scr.nodelay(True)
 
     def initialize(self):
@@ -36,11 +38,22 @@ class Screen:
         window._screen = self
         self.windows.append(window)
 
+    def set_focus_order(self, windows):
+        self._focus_order = [window for window in windows if window is not None]
+        self._focus_index = -1
+
     def focus(self, window):
         old = self.focused
         if old is window:
             return
         self.focused = window
+        order = self._focus_cycle_windows()
+        if window is None:
+            self._focus_index = -1
+        elif window in order:
+            self._focus_index = order.index(window)
+        else:
+            self._focus_index = -1
         if old and old.on_blur:
             old.on_blur()
         if window and window.on_focus:
@@ -49,6 +62,34 @@ class Screen:
             old.redraw()
         if window:
             window.redraw()
+
+    def focus_next(self):
+        self._focus_step(1)
+
+    def focus_prev(self):
+        self._focus_step(-1)
+
+    def _focus_step(self, step):
+        order = self._focus_cycle_windows()
+        total = len(order)
+        if total <= 0:
+            return
+        idx = self._focus_index
+        if idx < 0 or idx >= total:
+            idx = -1 if step > 0 else 0
+        for _ in range(total):
+            idx = (idx + step) % total
+            window = order[idx]
+            if not window.visible:
+                continue
+            self.focus(window)
+            return
+        self.focus(None)
+
+    def _focus_cycle_windows(self):
+        if self._focus_order:
+            return self._focus_order
+        return self.windows
 
     def refresh(self):
         if not self._initialized:

@@ -387,7 +387,7 @@ class DisassemblyViewer(VisualRpcComponent):
         lower_ch = ch
         if ord("A") <= ch <= ord("Z"):
             lower_ch = ch + 32
-        if lower_ch == ord("f"):
+        if ch == ord(" ") or lower_ch == ord("f"):
             self._set_follow(not self._follow)
             return True
 
