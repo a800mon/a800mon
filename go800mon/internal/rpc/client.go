@@ -43,7 +43,21 @@ const (
 	CmdBPDeleteClause  Command = 24
 	CmdBPSetEnabled    Command = 25
 	CmdBPList          Command = 26
-	CmdConfig          Command = 27
+	CmdBuildFeatures   Command = 27
+	CmdConfig          Command = CmdBuildFeatures
+	CmdGTIAState       Command = 29
+	CmdANTICState      Command = 30
+	CmdCartState       Command = 31
+	CmdJumps           Command = 32
+	CmdPIAState        Command = 33
+	CmdPOKEYState      Command = 34
+	CmdStack           Command = 35
+	CmdStepOver        Command = 36
+	CmdRunUntilReturn  Command = 37
+	CmdBBRK            Command = 38
+	CmdBLine           Command = 39
+	CmdSearch          Command = 41
+	CmdSetReg          Command = 42
 )
 
 type Status struct {
@@ -72,6 +86,85 @@ type HistoryEntry struct {
 	Op0 byte
 	Op1 byte
 	Op2 byte
+}
+
+type GTIAState struct {
+	HPOSP  [4]byte
+	HPOSM  [4]byte
+	SIZEP  [4]byte
+	SIZEM  byte
+	GRAFP  [4]byte
+	GRAFM  byte
+	COLPM  [4]byte
+	COLPF  [4]byte
+	COLBK  byte
+	PRIOR  byte
+	VDELAY byte
+	GRACTL byte
+}
+
+type ANTICState struct {
+	DMACTL byte
+	CHACTL byte
+	DLIST  uint16
+	HSCROL byte
+	VSCROL byte
+	PMBASE byte
+	CHBASE byte
+	VCOUNT byte
+	NMIEN  byte
+	YPOS   uint16
+}
+
+type CartSlotState struct {
+	Present byte
+	Type    int16
+	State   uint32
+	SizeKB  uint32
+	Raw     byte
+}
+
+type CartState struct {
+	Autoreboot byte
+	Main       CartSlotState
+	Piggy      CartSlotState
+}
+
+type JumpsState struct {
+	PCs []uint16
+}
+
+type PIAState struct {
+	PACTL byte
+	PBCTL byte
+	PORTA byte
+	PORTB byte
+}
+
+type POKEYState struct {
+	StereoEnabled byte
+	AUDF1         [4]byte
+	AUDC1         [4]byte
+	AUDCTL1       byte
+	KBCODE        byte
+	IRQEN         byte
+	IRQST         byte
+	SKSTAT        byte
+	SKCTL         byte
+	HasChip2      bool
+	AUDF2         [4]byte
+	AUDC2         [4]byte
+	AUDCTL2       byte
+}
+
+type StackEntry struct {
+	StackOff byte
+	Value    byte
+}
+
+type StackState struct {
+	S       byte
+	Entries []StackEntry
 }
 
 type BreakpointCondition struct {
@@ -171,7 +264,7 @@ func (c *Client) ensureConnectedLocked(ctx context.Context) error {
 		if c.lastError != nil {
 			return c.lastError
 		}
-		return errors.New("socket connection lost during CONFIG handshake")
+		return errors.New("socket connection lost during BUILD_FEATURES handshake")
 	}
 	return nil
 }
@@ -465,8 +558,192 @@ func (c *Client) History(ctx context.Context) ([]HistoryEntry, error) {
 	return entries, nil
 }
 
-func (c *Client) Config(ctx context.Context) ([]uint16, error) {
-	data, err := c.Call(ctx, CmdConfig, nil)
+func (c *Client) GTIAState(ctx context.Context) (GTIAState, error) {
+	data, err := c.Call(ctx, CmdGTIAState, nil)
+	if err != nil {
+		return GTIAState{}, err
+	}
+	if len(data) < 30 {
+		return GTIAState{}, errors.New("GTIA_STATE payload too short")
+	}
+	var out GTIAState
+	offset := 0
+	copy(out.HPOSP[:], data[offset:offset+4])
+	offset += 4
+	copy(out.HPOSM[:], data[offset:offset+4])
+	offset += 4
+	copy(out.SIZEP[:], data[offset:offset+4])
+	offset += 4
+	out.SIZEM = data[offset]
+	offset++
+	copy(out.GRAFP[:], data[offset:offset+4])
+	offset += 4
+	out.GRAFM = data[offset]
+	offset++
+	copy(out.COLPM[:], data[offset:offset+4])
+	offset += 4
+	copy(out.COLPF[:], data[offset:offset+4])
+	offset += 4
+	out.COLBK = data[offset]
+	out.PRIOR = data[offset+1]
+	out.VDELAY = data[offset+2]
+	out.GRACTL = data[offset+3]
+	return out, nil
+}
+
+func (c *Client) ANTICState(ctx context.Context) (ANTICState, error) {
+	data, err := c.Call(ctx, CmdANTICState, nil)
+	if err != nil {
+		return ANTICState{}, err
+	}
+	if len(data) < 12 {
+		return ANTICState{}, errors.New("ANTIC_STATE payload too short")
+	}
+	return ANTICState{
+		DMACTL: data[0],
+		CHACTL: data[1],
+		DLIST:  binary.LittleEndian.Uint16(data[2:4]),
+		HSCROL: data[4],
+		VSCROL: data[5],
+		PMBASE: data[6],
+		CHBASE: data[7],
+		VCOUNT: data[8],
+		NMIEN:  data[9],
+		YPOS:   binary.LittleEndian.Uint16(data[10:12]),
+	}, nil
+}
+
+func (c *Client) CartrigeState(ctx context.Context) (CartState, error) {
+	data, err := c.Call(ctx, CmdCartState, nil)
+	if err != nil {
+		return CartState{}, err
+	}
+	if len(data) < 25 {
+		return CartState{}, errors.New("CART_STATE payload too short")
+	}
+	return CartState{
+		Autoreboot: data[0],
+		Main: CartSlotState{
+			Present: data[1],
+			Type:    int16(binary.LittleEndian.Uint16(data[2:4])),
+			State:   binary.LittleEndian.Uint32(data[4:8]),
+			SizeKB:  binary.LittleEndian.Uint32(data[8:12]),
+			Raw:     data[12],
+		},
+		Piggy: CartSlotState{
+			Present: data[13],
+			Type:    int16(binary.LittleEndian.Uint16(data[14:16])),
+			State:   binary.LittleEndian.Uint32(data[16:20]),
+			SizeKB:  binary.LittleEndian.Uint32(data[20:24]),
+			Raw:     data[24],
+		},
+	}, nil
+}
+
+func (c *Client) Jumps(ctx context.Context) (JumpsState, error) {
+	data, err := c.Call(ctx, CmdJumps, nil)
+	if err != nil {
+		return JumpsState{}, err
+	}
+	if len(data) < 1 {
+		return JumpsState{}, errors.New("JUMPS payload too short")
+	}
+	count := int(data[0])
+	expected := 1 + count*2
+	if len(data) < expected {
+		return JumpsState{}, fmt.Errorf("JUMPS payload too short: got=%d expected=%d", len(data), expected)
+	}
+	pcs := make([]uint16, 0, count)
+	offset := 1
+	for i := 0; i < count; i++ {
+		pcs = append(pcs, binary.LittleEndian.Uint16(data[offset:offset+2]))
+		offset += 2
+	}
+	return JumpsState{PCs: pcs}, nil
+}
+
+func (c *Client) PIAState(ctx context.Context) (PIAState, error) {
+	data, err := c.Call(ctx, CmdPIAState, nil)
+	if err != nil {
+		return PIAState{}, err
+	}
+	if len(data) < 4 {
+		return PIAState{}, errors.New("PIA_STATE payload too short")
+	}
+	return PIAState{
+		PACTL: data[0],
+		PBCTL: data[1],
+		PORTA: data[2],
+		PORTB: data[3],
+	}, nil
+}
+
+func (c *Client) POKEYState(ctx context.Context) (POKEYState, error) {
+	data, err := c.Call(ctx, CmdPOKEYState, nil)
+	if err != nil {
+		return POKEYState{}, err
+	}
+	if len(data) < 15 {
+		return POKEYState{}, errors.New("POKEY_STATE payload too short")
+	}
+	var out POKEYState
+	offset := 0
+	out.StereoEnabled = data[offset]
+	offset++
+	copy(out.AUDF1[:], data[offset:offset+4])
+	offset += 4
+	copy(out.AUDC1[:], data[offset:offset+4])
+	offset += 4
+	out.AUDCTL1 = data[offset]
+	out.KBCODE = data[offset+1]
+	out.IRQEN = data[offset+2]
+	out.IRQST = data[offset+3]
+	out.SKSTAT = data[offset+4]
+	out.SKCTL = data[offset+5]
+	offset += 6
+	if out.StereoEnabled != 0 {
+		if len(data) < offset+9 {
+			return POKEYState{}, errors.New("POKEY_STATE payload too short (chip2_data)")
+		}
+		out.HasChip2 = true
+		copy(out.AUDF2[:], data[offset:offset+4])
+		copy(out.AUDC2[:], data[offset+4:offset+8])
+		out.AUDCTL2 = data[offset+8]
+	}
+	return out, nil
+}
+
+func (c *Client) Stack(ctx context.Context) (StackState, error) {
+	data, err := c.Call(ctx, CmdStack, nil)
+	if err != nil {
+		return StackState{}, err
+	}
+	if len(data) < 2 {
+		return StackState{}, errors.New("STACK payload too short")
+	}
+	s := data[0]
+	count := int(data[1])
+	expected := 2 + count*2
+	if len(data) < expected {
+		return StackState{}, fmt.Errorf("STACK payload too short: got=%d expected=%d", len(data), expected)
+	}
+	entries := make([]StackEntry, 0, count)
+	offset := 2
+	for i := 0; i < count; i++ {
+		entries = append(entries, StackEntry{
+			StackOff: data[offset],
+			Value:    data[offset+1],
+		})
+		offset += 2
+	}
+	return StackState{
+		S:       s,
+		Entries: entries,
+	}, nil
+}
+
+func (c *Client) BuildFeatures(ctx context.Context) ([]uint16, error) {
+	data, err := c.Call(ctx, CmdBuildFeatures, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -478,6 +755,10 @@ func (c *Client) Config(ctx context.Context) ([]uint16, error) {
 	c.configCaps = append([]uint16(nil), caps...)
 	c.mu.Unlock()
 	return caps, nil
+}
+
+func (c *Client) Config(ctx context.Context) ([]uint16, error) {
+	return c.BuildFeatures(ctx)
 }
 
 func (c *Client) BPClear(ctx context.Context) error {
@@ -576,12 +857,12 @@ func (c *Client) BPList(ctx context.Context) (BreakpointList, error) {
 
 func parseConfigPayload(data []byte) ([]uint16, error) {
 	if len(data) < 2 {
-		return nil, errors.New("config payload too short")
+		return nil, errors.New("build_features payload too short")
 	}
 	count := int(binary.LittleEndian.Uint16(data[:2]))
 	expected := 2 + count*2
 	if len(data) < expected {
-		return nil, fmt.Errorf("config payload too short: got=%d expected=%d", len(data), expected)
+		return nil, fmt.Errorf("build_features payload too short: got=%d expected=%d", len(data), expected)
 	}
 	caps := make([]uint16, 0, count)
 	offset := 2

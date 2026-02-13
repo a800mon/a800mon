@@ -32,7 +32,21 @@ class SocketCommand(enum.IntEnum):
     BP_DELETE_CLAUSE = 24
     BP_SET_ENABLED = 25
     BP_LIST = 26
+    BUILD_FEATURES = 27
     CONFIG = 27
+    GTIA_STATE = 29
+    ANTIC_STATE = 30
+    CART_STATE = 31
+    JUMPS = 32
+    PIA_STATE = 33
+    POKEY_STATE = 34
+    STACK = 35
+    STEP_OVER = 36
+    RUN_UNTIL_RETURN = 37
+    BBRK = 38
+    BLINE = 39
+    SEARCH = 41
+    SET_REG = 42
 
 
 SUPPORTED_COMMANDS = {
@@ -63,7 +77,21 @@ SUPPORTED_COMMANDS = {
     Command.BP_DELETE_CLAUSE: 24,
     Command.BP_SET_ENABLED: 25,
     Command.BP_LIST: 26,
+    Command.BUILD_FEATURES: 27,
     Command.CONFIG: 27,
+    Command.GTIA_STATE: 29,
+    Command.ANTIC_STATE: 30,
+    Command.CART_STATE: 31,
+    Command.JUMPS: 32,
+    Command.PIA_STATE: 33,
+    Command.POKEY_STATE: 34,
+    Command.STACK: 35,
+    Command.STEP_OVER: 36,
+    Command.RUN_UNTIL_RETURN: 37,
+    Command.BBRK: 38,
+    Command.BLINE: 39,
+    Command.SEARCH: 41,
+    Command.SET_REG: 42,
 }
 
 
@@ -115,7 +143,7 @@ class SocketTransport:
     async def _read_config_on_connect(self):
         if self._writer is None:
             return
-        packet = bytes([SocketCommand.CONFIG]) + struct.pack("<H", 0)
+        packet = bytes([SocketCommand.BUILD_FEATURES]) + struct.pack("<H", 0)
         try:
             self._writer.write(packet)
             await asyncio.wait_for(self._writer.drain(), timeout=self._timeout)

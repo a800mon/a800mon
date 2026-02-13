@@ -30,6 +30,11 @@ This repository contains `a800mon`, a curses-based monitor UI and CLI for Atari8
 - **Dispatcher for actions**: UI actions are routed via `ActionDispatcher` (`py800mon/actions.py`). Callbacks may run immediate logic but must use the dispatcher to change state.
 - **Focus**: focus is controlled by `Screen.focus(...)`. Do not use `window._screen`.
 - **Active mode**: the active shortcut layer is determined by `state.active_mode` only. `ShortcutManager` is just a registry.
+- **RPC unpacking location**: binary protocol unpacking/validation MUST happen in RPC modules (`py800mon/rpc.py`, `go800mon/internal/rpc/*`), never in CLI/UI command handlers.
+- **Typed command results**: when a command returns a structured payload, define/extend data structures first (`py800mon/datastructures.py`, `go800mon/a800mon/datastructures.go`) and make RPC return those types.
+- **CLI/UI responsibility**: CLI/UI handlers should orchestrate input/output only. They must call dedicated logic/RPC methods and avoid embedding protocol parsing or domain logic.
+- **Logic vs usage split**: keep reusable logic/state machines in dedicated modules/classes; keep prompt/dispatch glue in CLI entry modules.
+- **Breakpoints architecture**: breakpoint business logic must be separated from CLI wiring and transport calls; CLI should only parse args, call dedicated APIs, and print results.
 
 ## Shortcuts and Layers
 - Layers are defined in `ShortcutLayer` (`py800mon/shortcuts.py`).
@@ -40,6 +45,9 @@ This repository contains `a800mon`, a curses-based monitor UI and CLI for Atari8
 - UI/UX quality is important even for a developer tool: preserve readability, visual stability, and interaction ergonomics.
 - Prefer clean code and maintainable design choices (clear naming, small focused functions, explicit dependencies, and minimal coupling) that reduce long-term maintenance cost.
 - Keep logic explicit. Avoid reflection, magic `getattr`/`setattr`, and implicit type coercion.
+- **DRY is mandatory**: do not copy parsing/validation logic across commands.
+- **Central parsing utils**: hex parsing, numeric range checks, and payload decoding must be implemented once in shared util modules and reused by CLI/UI/RPC code.
+- **No local parser clones**: command handlers must not define ad-hoc `_parse_*`/`parse*` duplicates when a shared helper exists.
 - Prefer deterministic actions (`SET_*`) over implicit toggles when practical.
 - Avoid injecting large object graphs into helpers; prefer closures in `main.py` when wiring UI callbacks.
 - Keep changes minimal and localized. Avoid refactors unless explicitly requested.

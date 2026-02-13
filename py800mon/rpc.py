@@ -2,7 +2,18 @@ import asyncio
 import enum
 import struct
 
-from .datastructures import CpuHistoryEntry
+from .datastructures import (
+    AnticState,
+    CartSlotState,
+    CartState,
+    CpuHistoryEntry,
+    GtiaState,
+    JumpsState,
+    PiaState,
+    PokeyState,
+    StackEntry,
+    StackState,
+)
 
 
 class RpcException(Exception):
@@ -76,7 +87,21 @@ class Command(enum.Enum):
     BP_DELETE_CLAUSE = "bp_delete_clause"
     BP_SET_ENABLED = "bp_set_enabled"
     BP_LIST = "bp_list"
+    BUILD_FEATURES = "build_features"
     CONFIG = "config"
+    GTIA_STATE = "gtia_state"
+    ANTIC_STATE = "antic_state"
+    CART_STATE = "cart_state"
+    JUMPS = "jumps"
+    PIA_STATE = "pia_state"
+    POKEY_STATE = "pokey_state"
+    STACK = "stack"
+    STEP_OVER = "step_over"
+    RUN_UNTIL_RETURN = "run_until_return"
+    BBRK = "bbrk"
+    BLINE = "bline"
+    SEARCH = "search"
+    SET_REG = "set_reg"
 
 
 class RpcClient:
@@ -116,10 +141,14 @@ class RpcClient:
 
     async def read_vector(self, addr: int):
         ptr = await self.call(Command.MEM_READ, struct.pack("<HH", addr, 2))
+        if len(ptr) < 2:
+            raise RpcException("MEM_READ vector payload too short")
         return ptr[0] | (ptr[1] << 8)
 
     async def read_byte(self, addr: int) -> int:
         data = await self.call(Command.MEM_READ, struct.pack("<HH", addr, 1))
+        if len(data) < 1:
+            raise RpcException("MEM_READ byte payload too short")
         return data[0]
 
     async def read_memory(self, addr: int, length: int):
@@ -216,22 +245,20 @@ class RpcClient:
             clauses.append(clause)
         return enabled, clauses
 
-    async def config(self) -> list[int]:
-        data = await self.call(Command.CONFIG)
+    async def build_features(self) -> list[int]:
+        data = await self.call(Command.BUILD_FEATURES)
         if len(data) < 2:
-            raise RpcException("CONFIG payload too short")
+            raise RpcException("BUILD_FEATURES payload too short")
         count = struct.unpack_from("<H", data, 0)[0]
         expected = 2 + count * 2
         if len(data) < expected:
             raise RpcException(
-                f"CONFIG payload too short: got={len(data)} expected={expected}"
+                f"BUILD_FEATURES payload too short: got={len(data)} expected={expected}"
             )
-        caps = []
-        offset = 2
-        for _ in range(count):
-            caps.append(struct.unpack_from("<H", data, offset)[0])
-            offset += 2
-        return caps
+        return [cap for (cap,) in struct.iter_unpack("<H", data[2:expected])]
+
+    async def config(self) -> list[int]:
+        return await self.build_features()
 
     async def status(self):
         data = await self.call(Command.STATUS)
@@ -264,12 +291,170 @@ class RpcClient:
             raise RpcException(
                 f"HISTORY payload too short: got={len(data)} expected={expected}"
             )
-        entries = []
-        offset = 1
-        for _ in range(count):
-            y, x, pc, op0, op1, op2 = struct.unpack_from(
-                "<BBHBBB", data, offset)
-            entries.append(CpuHistoryEntry(
-                y=y, x=x, pc=pc, op0=op0, op1=op1, op2=op2))
-            offset += 7
-        return entries
+        return [
+            CpuHistoryEntry(y=y, x=x, pc=pc, op0=op0, op1=op1, op2=op2)
+            for y, x, pc, op0, op1, op2 in struct.iter_unpack("<BBHBBB", data[1:expected])
+        ]
+
+    async def gtia_state(self) -> GtiaState:
+        data = await self.call(Command.GTIA_STATE)
+        if len(data) < 30:
+            raise RpcException("GTIA_STATE payload too short")
+        (
+            hposp,
+            hposm,
+            sizep,
+            sizem,
+            grafp,
+            grafm,
+            colpm,
+            colpf,
+            colbk,
+            prior,
+            vdelay,
+            gractl,
+        ) = struct.unpack("<4s4s4sB4sB4s4sBBBB", data[:30])
+        return GtiaState(
+            hposp=tuple(hposp),
+            hposm=tuple(hposm),
+            sizep=tuple(sizep),
+            sizem=sizem,
+            grafp=tuple(grafp),
+            grafm=grafm,
+            colpm=tuple(colpm),
+            colpf=tuple(colpf),
+            colbk=colbk,
+            prior=prior,
+            vdelay=vdelay,
+            gractl=gractl,
+        )
+
+    async def antic_state(self) -> AnticState:
+        data = await self.call(Command.ANTIC_STATE)
+        if len(data) < 12:
+            raise RpcException("ANTIC_STATE payload too short")
+        dmactl, chactl, dlist, hscrol, vscrol, pmbase, chbase, vcount, nmien, ypos = struct.unpack(
+            "<BBHBBBBBBH", data[:12]
+        )
+        return AnticState(
+            dmactl=dmactl,
+            chactl=chactl,
+            dlist=dlist,
+            hscrol=hscrol,
+            vscrol=vscrol,
+            pmbase=pmbase,
+            chbase=chbase,
+            vcount=vcount,
+            nmien=nmien,
+            ypos=ypos,
+        )
+
+    async def cartrige_state(self) -> CartState:
+        data = await self.call(Command.CART_STATE)
+        if len(data) < 25:
+            raise RpcException("CART_STATE payload too short")
+        fields = struct.unpack("<BBhIIBBhIIB", data[:25])
+        (
+            autoreboot,
+            main_present,
+            main_type,
+            main_state,
+            main_size_kb,
+            main_raw,
+            piggy_present,
+            piggy_type,
+            piggy_state,
+            piggy_size_kb,
+            piggy_raw,
+        ) = fields
+        return CartState(
+            autoreboot=autoreboot,
+            main=CartSlotState(
+                present=main_present,
+                cart_type=main_type,
+                state=main_state,
+                size_kb=main_size_kb,
+                raw=main_raw,
+            ),
+            piggy=CartSlotState(
+                present=piggy_present,
+                cart_type=piggy_type,
+                state=piggy_state,
+                size_kb=piggy_size_kb,
+                raw=piggy_raw,
+            ),
+        )
+
+    async def jumps(self) -> JumpsState:
+        data = await self.call(Command.JUMPS)
+        if len(data) < 1:
+            raise RpcException("JUMPS payload too short")
+        count = data[0]
+        expected = 1 + count * 2
+        if len(data) < expected:
+            raise RpcException(
+                f"JUMPS payload too short: got={len(data)} expected={expected}"
+            )
+        pcs = tuple(pc for (pc,) in struct.iter_unpack("<H", data[1:expected]))
+        return JumpsState(pcs=pcs)
+
+    async def pia_state(self) -> PiaState:
+        data = await self.call(Command.PIA_STATE)
+        if len(data) < 4:
+            raise RpcException("PIA_STATE payload too short")
+        pactl, pbctl, porta, portb = struct.unpack("<BBBB", data[:4])
+        return PiaState(pactl=pactl, pbctl=pbctl, porta=porta, portb=portb)
+
+    async def pokey_state(self) -> PokeyState:
+        data = await self.call(Command.POKEY_STATE)
+        if len(data) < 15:
+            raise RpcException("POKEY_STATE payload too short")
+        (
+            stereo_enabled,
+            audf1,
+            audc1,
+            audctl1,
+            kbcode,
+            irqen,
+            irqst,
+            skstat,
+            skctl,
+        ) = struct.unpack("<B4s4sBBBBBB", data[:15])
+        audf2 = None
+        audc2 = None
+        audctl2 = None
+        if stereo_enabled:
+            if len(data) < 24:
+                raise RpcException("POKEY_STATE payload too short (chip2_data)")
+            audf2, audc2, audctl2 = struct.unpack("<4s4sB", data[15:24])
+        return PokeyState(
+            stereo_enabled=stereo_enabled,
+            audf1=tuple(audf1),
+            audc1=tuple(audc1),
+            audctl1=audctl1,
+            kbcode=kbcode,
+            irqen=irqen,
+            irqst=irqst,
+            skstat=skstat,
+            skctl=skctl,
+            audf2=tuple(audf2) if audf2 is not None else None,
+            audc2=tuple(audc2) if audc2 is not None else None,
+            audctl2=audctl2,
+        )
+
+    async def stack(self) -> StackState:
+        data = await self.call(Command.STACK)
+        if len(data) < 2:
+            raise RpcException("STACK payload too short")
+        s = data[0]
+        count = data[1]
+        expected = 2 + count * 2
+        if len(data) < expected:
+            raise RpcException(
+                f"STACK payload too short: got={len(data)} expected={expected}"
+            )
+        entries = tuple(
+            StackEntry(stack_off=stack_off, value=value)
+            for stack_off, value in struct.iter_unpack("<BB", data[2:expected])
+        )
+        return StackState(s=s, entries=entries)

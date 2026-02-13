@@ -9,6 +9,7 @@ from .rpc import Command, RpcException
 class Actions(enum.Enum):
     STEP = enum.auto()
     STEP_VBLANK = enum.auto()
+    STEP_OVER = enum.auto()
     PAUSE = enum.auto()
     CONTINUE = enum.auto()
     SYNC_MODE = enum.auto()
@@ -53,6 +54,9 @@ class ActionDispatcher(Component):
             return
         if action == Actions.STEP_VBLANK:
             self._enqueue_rpc(Command.STEP_VBLANK)
+            return
+        if action == Actions.STEP_OVER:
+            self._enqueue_rpc(Command.STEP_OVER)
             return
         if action == Actions.PAUSE:
             self._enqueue_rpc(Command.PAUSE)

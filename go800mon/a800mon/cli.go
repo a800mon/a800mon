@@ -1,15 +1,16 @@
 package a800mon
 
 import (
+	"bufio"
 	"bytes"
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/signal"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"syscall"
 
@@ -26,6 +27,8 @@ type cliArgs struct {
 	Pause          cliEmptyCmd       `cmd:"" help:"Pause emulation."`
 	Step           cliEmptyCmd       `cmd:"" help:"Step one instruction."`
 	StepVBL        cliEmptyCmd       `cmd:"" name:"stepvbl" help:"Step one VBLANK."`
+	StepOver       cliStepPCOptional `cmd:"" name:"stepover" help:"Step over instruction."`
+	RunUntilRet    cliStepPCOptional `cmd:"" name:"rununtilret" help:"Run until return from subroutine."`
 	Continue       cliEmptyCmd       `cmd:"" name:"continue" help:"Continue emulation."`
 	Coldstart      cliEmptyCmd       `cmd:"" help:"Cold start emulation."`
 	Warmstart      cliEmptyCmd       `cmd:"" help:"Warm start emulation."`
@@ -35,8 +38,20 @@ type cliArgs struct {
 	Emulator       cliEmulatorCmd    `cmd:"" help:"Emulator control commands."`
 	BP             cliBreakpointsCmd `cmd:"" name:"bp" help:"Manage user breakpoints."`
 	DList          cliDListCmd       `cmd:"" name:"dlist" help:"Dump display list."`
-	CPUState       cliEmptyCmd       `cmd:"" name:"cpustate" help:"Show CPU state."`
+	CPUState       cliEmptyCmd       `cmd:"" name:"cpu" help:"Show CPU state."`
+	GTIAState      cliEmptyCmd       `cmd:"" name:"gtia" help:"Show GTIA register state."`
+	ANTICState     cliEmptyCmd       `cmd:"" name:"antic" help:"Show ANTIC register state."`
+	CartState      cliEmptyCmd       `cmd:"" name:"cart" help:"Show cartridge state."`
+	Jumps          cliEmptyCmd       `cmd:"" name:"jumps" help:"Show jump history ring."`
+	PIAState       cliEmptyCmd       `cmd:"" name:"pia" help:"Show PIA register state."`
+	POKEYState     cliEmptyCmd       `cmd:"" name:"pokey" help:"Show POKEY register state."`
+	Stack          cliEmptyCmd       `cmd:"" name:"stack" help:"Show 6502 stack bytes."`
 	History        cliHistoryCmd     `cmd:"" help:"Show CPU execution history."`
+	BBRK           cliBBRKCmd        `cmd:"" name:"bbrk" help:"Query/set break-on-BRK mode."`
+	BLine          cliBLineCmd       `cmd:"" name:"bline" help:"Query/set scanline break value."`
+	Trainer        cliTrainerCmd     `cmd:"" name:"trainer" help:"Interactive value trainer."`
+	Search         cliSearchCmd      `cmd:"" name:"search" help:"Search memory for a pattern."`
+	SetReg         cliSetRegCmd      `cmd:"" name:"cpureg" help:"Set CPU register or flag."`
 	Status         cliEmptyCmd       `cmd:"" help:"Get status."`
 	Ping           cliEmptyCmd       `cmd:"" help:"Ping RPC server."`
 	ReadMem        cliReadMemCmd     `cmd:"" name:"readmem" help:"Read memory."`
@@ -53,6 +68,10 @@ type cliRunCmd struct {
 
 type cliHistoryCmd struct {
 	Count int `short:"n" name:"count" default:"-1" help:"Limit output to last N entries."`
+}
+
+type cliStepPCOptional struct {
+	PC *string `arg:"" optional:"" help:"Optional PC address (hex: 0xNNNN, $NNNN, NNNN)."`
 }
 
 type cliEmulatorCmd struct {
@@ -77,6 +96,33 @@ type cliBPAddCmd struct {
 
 type cliBPDeleteCmd struct {
 	Index int `arg:"" help:"Clause index (1-based)."`
+}
+
+type cliBBRKCmd struct {
+	Enabled *string `arg:"" optional:"" help:"Optional state: on/off/1/0."`
+}
+
+type cliBLineCmd struct {
+	Scanline *string `arg:"" optional:"" help:"Optional scanline (hex: 0xNNNN, $NNNN, NNNN)."`
+}
+
+type cliTrainerCmd struct {
+	Start string `arg:"" help:"Start address (hex: 0xNNNN, $NNNN, NNNN)."`
+	Stop  string `arg:"" help:"Stop address (hex: 0xNNNN, $NNNN, NNNN)."`
+	Value string `arg:"" help:"Initial byte value (hex: 00..FF)."`
+}
+
+type cliSearchCmd struct {
+	ATASCII      bool     `short:"a" name:"atascii" help:"Convert input text to ATASCII bytes before search."`
+	SearchScreen bool     `name:"screen" help:"Convert input text to screen-codes before search."`
+	Start        string   `arg:"" help:"Start address (hex: 0xNNNN, $NNNN, NNNN)."`
+	End          string   `arg:"" help:"End address (hex: 0xNNNN, $NNNN, NNNN)."`
+	Pattern      []string `arg:"" help:"Hex bytes by default; text when --atascii and/or --screen is used."`
+}
+
+type cliSetRegCmd struct {
+	Target string `arg:"" enum:"pc,a,x,y,s,n,v,d,i,z,c" help:"Target register/flag."`
+	Value  string `arg:"" help:"Value (hex: 0xNNNN, $NNNN, NNNN)."`
 }
 
 type cliDListCmd struct {
@@ -123,9 +169,10 @@ func Main(argv []string) int {
 	if len(argv) == 0 {
 		return cmdMonitor("/tmp/atari.sock")
 	}
-	args, parsed, err := parseCLI(argv)
+	normalizedArgv := normalizeSearchArgv(argv)
+	args, parsed, err := parseCLI(normalizedArgv)
 	if err != nil && canFallbackToMonitor(argv) {
-		fallbackArgv := append(append([]string{}, argv...), "monitor")
+		fallbackArgv := append(append([]string{}, normalizedArgv...), "monitor")
 		args, parsed, err = parseCLI(fallbackArgv)
 	}
 	if err != nil {
@@ -148,6 +195,10 @@ func Main(argv []string) int {
 		return cmdStepLike(socket, CmdStep)
 	case "stepvbl":
 		return cmdStepLike(socket, CmdStepVBlank)
+	case "stepover":
+		return cmdStepOver(socket, args.StepOver)
+	case "rununtilret":
+		return cmdRunUntilReturn(socket, args.RunUntilRet)
 	case "continue":
 		return cmdSimple(socket, CmdContinue)
 	case "coldstart":
@@ -182,10 +233,34 @@ func Main(argv []string) int {
 		return cmdBPSetEnabled(socket, false)
 	case "dlist":
 		return cmdDumpDList(socket, args.DList)
-	case "cpustate":
+	case "cpu":
 		return cmdCPUState(socket)
+	case "gtia":
+		return cmdGTIAState(socket)
+	case "antic":
+		return cmdANTICState(socket)
+	case "cart":
+		return cmdCartState(socket)
+	case "jumps":
+		return cmdJumps(socket)
+	case "pia":
+		return cmdPIAState(socket)
+	case "pokey":
+		return cmdPOKEYState(socket)
+	case "stack":
+		return cmdStack(socket)
 	case "history":
 		return cmdHistory(socket, args.History.Count)
+	case "bbrk":
+		return cmdBBRK(socket, args.BBRK)
+	case "bline":
+		return cmdBLine(socket, args.BLine)
+	case "trainer":
+		return cmdTrainer(socket, args.Trainer)
+	case "search":
+		return cmdSearch(socket, args.Search)
+	case "cpureg":
+		return cmdSetReg(socket, args.SetReg)
 	case "status":
 		return cmdStatus(socket)
 	case "ping":
@@ -201,6 +276,26 @@ func Main(argv []string) int {
 	default:
 		return 2
 	}
+}
+
+func normalizeSearchArgv(argv []string) []string {
+	out := append([]string{}, argv...)
+	seenSearch := false
+	for i, token := range out {
+		if !seenSearch {
+			if token == "search" {
+				seenSearch = true
+			}
+			continue
+		}
+		if token == "--" {
+			break
+		}
+		if token == "-s" {
+			out[i] = "--screen"
+		}
+	}
+	return out
 }
 
 func parseCLI(argv []string) (cliArgs, *kong.Context, error) {
@@ -293,6 +388,40 @@ func cmdStepLike(socket string, cmd Command) int {
 	return printCPUState(cl)
 }
 
+func cmdStepOver(socket string, args cliStepPCOptional) int {
+	cl := rpcClient(socket)
+	var payload []byte
+	if args.PC != nil {
+		pc, err := memory.ParseHex(*args.PC)
+		if err != nil {
+			return fail(err)
+		}
+		payload = make([]byte, 2)
+		binary.LittleEndian.PutUint16(payload, pc)
+	}
+	if _, err := cl.Call(context.Background(), CmdStepOver, payload); err != nil {
+		return fail(err)
+	}
+	return printCPUState(cl)
+}
+
+func cmdRunUntilReturn(socket string, args cliStepPCOptional) int {
+	cl := rpcClient(socket)
+	var payload []byte
+	if args.PC != nil {
+		pc, err := memory.ParseHex(*args.PC)
+		if err != nil {
+			return fail(err)
+		}
+		payload = make([]byte, 2)
+		binary.LittleEndian.PutUint16(payload, pc)
+	}
+	if _, err := cl.Call(context.Background(), CmdRunUntilReturn, payload); err != nil {
+		return fail(err)
+	}
+	return printCPUState(cl)
+}
+
 func cmdDumpDList(socket string, args cliDListCmd) int {
 	cl := rpcClient(socket)
 	ctx := context.Background()
@@ -352,6 +481,120 @@ func cmdCPUState(socket string) int {
 	return printCPUState(rpcClient(socket))
 }
 
+func cmdGTIAState(socket string) int {
+	state, err := rpcClient(socket).GTIAState(context.Background())
+	if err != nil {
+		return fail(err)
+	}
+	fmt.Printf("HPOSP:  %s\n", fmtBytes(state.HPOSP[:]))
+	fmt.Printf("HPOSM:  %s\n", fmtBytes(state.HPOSM[:]))
+	fmt.Printf("SIZEP:  %s\n", fmtBytes(state.SIZEP[:]))
+	fmt.Printf("SIZEM:  %02X\n", state.SIZEM)
+	fmt.Printf("GRAFP:  %s\n", fmtBytes(state.GRAFP[:]))
+	fmt.Printf("GRAFM:  %02X\n", state.GRAFM)
+	fmt.Printf("COLPM:  %s\n", fmtBytes(state.COLPM[:]))
+	fmt.Printf("COLPF:  %s\n", fmtBytes(state.COLPF[:]))
+	fmt.Printf("COLBK:  %02X\n", state.COLBK)
+	fmt.Printf("PRIOR:  %02X\n", state.PRIOR)
+	fmt.Printf("VDELAY: %02X\n", state.VDELAY)
+	fmt.Printf("GRACTL: %02X\n", state.GRACTL)
+	return 0
+}
+
+func cmdANTICState(socket string) int {
+	state, err := rpcClient(socket).ANTICState(context.Background())
+	if err != nil {
+		return fail(err)
+	}
+	fmt.Printf("DMACTL: %02X\n", state.DMACTL)
+	fmt.Printf("CHACTL: %02X\n", state.CHACTL)
+	fmt.Printf("DLIST:  %04X\n", state.DLIST)
+	fmt.Printf("HSCROL: %02X\n", state.HSCROL)
+	fmt.Printf("VSCROL: %02X\n", state.VSCROL)
+	fmt.Printf("PMBASE: %02X\n", state.PMBASE)
+	fmt.Printf("CHBASE: %02X\n", state.CHBASE)
+	fmt.Printf("VCOUNT: %02X\n", state.VCOUNT)
+	fmt.Printf("NMIEN:  %02X\n", state.NMIEN)
+	fmt.Printf("YPOS:   %d\n", state.YPOS)
+	return 0
+}
+
+func cmdCartState(socket string) int {
+	state, err := rpcClient(socket).CartrigeState(context.Background())
+	if err != nil {
+		return fail(err)
+	}
+	fmt.Printf("autoreboot:    %d\n", state.Autoreboot)
+	fmt.Printf("main_present:  %d\n", state.Main.Present)
+	fmt.Printf("main_type:     %d\n", state.Main.Type)
+	fmt.Printf("main_state:    %08X\n", state.Main.State)
+	fmt.Printf("main_size_kb:  %d\n", state.Main.SizeKB)
+	fmt.Printf("main_raw:      %d\n", state.Main.Raw)
+	fmt.Printf("piggy_present: %d\n", state.Piggy.Present)
+	fmt.Printf("piggy_type:    %d\n", state.Piggy.Type)
+	fmt.Printf("piggy_state:   %08X\n", state.Piggy.State)
+	fmt.Printf("piggy_size_kb: %d\n", state.Piggy.SizeKB)
+	fmt.Printf("piggy_raw:     %d\n", state.Piggy.Raw)
+	return 0
+}
+
+func cmdJumps(socket string) int {
+	state, err := rpcClient(socket).Jumps(context.Background())
+	if err != nil {
+		return fail(err)
+	}
+	for i, pc := range state.PCs {
+		fmt.Printf("%02d: %04X\n", i+1, pc)
+	}
+	return 0
+}
+
+func cmdPIAState(socket string) int {
+	state, err := rpcClient(socket).PIAState(context.Background())
+	if err != nil {
+		return fail(err)
+	}
+	fmt.Printf("PACTL: %02X\n", state.PACTL)
+	fmt.Printf("PBCTL: %02X\n", state.PBCTL)
+	fmt.Printf("PORTA: %02X\n", state.PORTA)
+	fmt.Printf("PORTB: %02X\n", state.PORTB)
+	return 0
+}
+
+func cmdPOKEYState(socket string) int {
+	state, err := rpcClient(socket).POKEYState(context.Background())
+	if err != nil {
+		return fail(err)
+	}
+	fmt.Printf("stereo_enabled: %d\n", state.StereoEnabled)
+	fmt.Printf("AUDF1:          %s\n", fmtBytes(state.AUDF1[:]))
+	fmt.Printf("AUDC1:          %s\n", fmtBytes(state.AUDC1[:]))
+	fmt.Printf("AUDCTL1:        %02X\n", state.AUDCTL1)
+	fmt.Printf("KBCODE:         %02X\n", state.KBCODE)
+	fmt.Printf("IRQEN:          %02X\n", state.IRQEN)
+	fmt.Printf("IRQST:          %02X\n", state.IRQST)
+	fmt.Printf("SKSTAT:         %02X\n", state.SKSTAT)
+	fmt.Printf("SKCTL:          %02X\n", state.SKCTL)
+	if state.HasChip2 {
+		fmt.Printf("AUDF2:          %s\n", fmtBytes(state.AUDF2[:]))
+		fmt.Printf("AUDC2:          %s\n", fmtBytes(state.AUDC2[:]))
+		fmt.Printf("AUDCTL2:        %02X\n", state.AUDCTL2)
+	}
+	return 0
+}
+
+func cmdStack(socket string) int {
+	state, err := rpcClient(socket).Stack(context.Background())
+	if err != nil {
+		return fail(err)
+	}
+	fmt.Printf("S=%02X count=%d\n", state.S, len(state.Entries))
+	for _, entry := range state.Entries {
+		fmt.Printf("01%02X: %02X\n", entry.StackOff, entry.Value)
+	}
+	return 0
+}
+
 func printCPUState(cl *RpcClient) int {
 	cpu, err := cl.CPUState(context.Background())
 	if err != nil {
@@ -373,6 +616,302 @@ func cmdHistory(socket string, count int) int {
 		e := entries[i]
 		ins := disasm.DisasmOne(e.PC, e.OpBytes())
 		fmt.Printf("%03d Y=%02X X=%02X PC=%04X  %s\n", (len(entries) - i), e.Y, e.X, e.PC, ins)
+	}
+	return 0
+}
+
+func cmdBBRK(socket string, args cliBBRKCmd) int {
+	var payload []byte
+	if args.Enabled != nil {
+		enabled, err := parseBool(*args.Enabled)
+		if err != nil {
+			return fail(err)
+		}
+		if enabled {
+			payload = []byte{1}
+		} else {
+			payload = []byte{0}
+		}
+	}
+	data, err := rpcClient(socket).Call(context.Background(), CmdBBRK, payload)
+	if err != nil {
+		return fail(err)
+	}
+	if len(data) < 1 {
+		return fail(errors.New("BBRK payload too short"))
+	}
+	if data[0] == 0 {
+		fmt.Println("bbrk=off")
+		return 0
+	}
+	fmt.Println("bbrk=on")
+	return 0
+}
+
+func cmdBLine(socket string, args cliBLineCmd) int {
+	var payload []byte
+	if args.Scanline != nil {
+		scanline, err := memory.ParseHex(*args.Scanline)
+		if err != nil {
+			return fail(err)
+		}
+		payload = make([]byte, 2)
+		binary.LittleEndian.PutUint16(payload, scanline)
+	}
+	data, err := rpcClient(socket).Call(context.Background(), CmdBLine, payload)
+	if err != nil {
+		return fail(err)
+	}
+	if len(data) < 3 {
+		return fail(errors.New("BLINE payload too short"))
+	}
+	scanline := binary.LittleEndian.Uint16(data[0:2])
+	mode := blineModeName(data[2])
+	fmt.Printf("scanline=%d mode=%s\n", scanline, mode)
+	return 0
+}
+
+func cmdTrainer(socket string, args cliTrainerCmd) int {
+	start, err := memory.ParseHex(args.Start)
+	if err != nil {
+		return fail(err)
+	}
+	stop, err := memory.ParseHex(args.Stop)
+	if err != nil {
+		return fail(err)
+	}
+	initial, err := memory.ParseHexByte(args.Value)
+	if err != nil {
+		return fail(err)
+	}
+	trainer, err := NewTrainer(start, stop, nil)
+	if err != nil {
+		return fail(err)
+	}
+	cl := rpcClient(socket)
+	defer cl.Close()
+	trainer.BindReader(func(addr uint16, length int) ([]byte, error) {
+		return cl.ReadMemoryChunked(context.Background(), addr, length)
+	})
+	matches, err := trainer.Start(&initial)
+	if err != nil {
+		return fail(err)
+	}
+	fmt.Printf(
+		"range=%04X-%04X initial=%02X matches=%d\n",
+		start,
+		stop,
+		initial,
+		matches,
+	)
+	fmt.Println("commands: c <value>, nc, p [limit], q")
+	if matches == 0 {
+		return 0
+	}
+	if matches == 1 {
+		printSingleTrainerMatch(trainer)
+	}
+
+	reader := bufio.NewReader(os.Stdin)
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, os.Interrupt)
+	defer signal.Stop(sigCh)
+	for {
+		fmt.Print("trainer> ")
+		line, interrupted, err := readTrainerLine(reader, sigCh)
+		if interrupted {
+			fmt.Println()
+			return 0
+		}
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				fmt.Println()
+				return 0
+			}
+			return fail(err)
+		}
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		parts := strings.Fields(line)
+		cmd := strings.ToLower(parts[0])
+		switch cmd {
+		case "q":
+			return 0
+		case "p":
+			if len(parts) > 2 {
+				fmt.Println("Usage: p [limit]")
+				continue
+			}
+			limit := 20
+			if len(parts) == 2 {
+				limit, err = memory.ParsePositiveInt(parts[1])
+				if err != nil {
+					fmt.Println(err)
+					continue
+				}
+			}
+			printTrainerMatches(trainer, limit)
+		case "nc":
+			if len(parts) != 1 {
+				fmt.Println("Usage: nc")
+				continue
+			}
+			matches, err = trainer.NotChanged()
+			if err != nil {
+				return fail(err)
+			}
+			fmt.Printf("matches=%d\n", matches)
+			if matches == 0 {
+				return 0
+			}
+			if matches == 1 {
+				printSingleTrainerMatch(trainer)
+			}
+		case "c":
+			if len(parts) != 2 {
+				fmt.Println("Usage: c <value>")
+				continue
+			}
+			var next byte
+			next, err = memory.ParseHexByte(parts[1])
+			if err != nil {
+				fmt.Println(err)
+				continue
+			}
+			matches, err = trainer.Changed(next)
+			if err != nil {
+				return fail(err)
+			}
+			fmt.Printf("matches=%d\n", matches)
+			if matches == 0 {
+				return 0
+			}
+			if matches == 1 {
+				printSingleTrainerMatch(trainer)
+			}
+		default:
+			fmt.Println("Unknown command. Use: c <value>, nc, p [limit], q")
+		}
+	}
+}
+
+func readTrainerLine(reader *bufio.Reader, sigCh <-chan os.Signal) (string, bool, error) {
+	lineCh := make(chan string, 1)
+	errCh := make(chan error, 1)
+	go func() {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			errCh <- err
+			return
+		}
+		lineCh <- line
+	}()
+	select {
+	case <-sigCh:
+		return "", true, nil
+	case err := <-errCh:
+		return "", false, err
+	case line := <-lineCh:
+		return line, false, nil
+	}
+}
+
+func printTrainerMatches(trainer *Trainer, limit int) {
+	total := trainer.MatchCount()
+	fmt.Printf("matches=%d\n", total)
+	if total == 0 {
+		return
+	}
+	rows := trainer.Rows(limit)
+	fmt.Println("idx  addr  val")
+	for i, row := range rows {
+		fmt.Printf("%03d  %04X  %02X\n", i+1, row.Addr, row.Value)
+	}
+	if len(rows) < total {
+		fmt.Printf("... %d more\n", total-len(rows))
+	}
+}
+
+func printSingleTrainerMatch(trainer *Trainer) {
+	rows := trainer.Rows(1)
+	if len(rows) == 0 {
+		return
+	}
+	fmt.Println("idx  addr  val")
+	fmt.Printf("001  %04X  %02X\n", rows[0].Addr, rows[0].Value)
+}
+
+func cmdSearch(socket string, args cliSearchCmd) int {
+	start, err := memory.ParseHex(args.Start)
+	if err != nil {
+		return fail(err)
+	}
+	end, err := memory.ParseHex(args.End)
+	if err != nil {
+		return fail(err)
+	}
+	raw := strings.Join(args.Pattern, " ")
+	var pattern []byte
+	if args.ATASCII || args.SearchScreen {
+		pattern, err = EncodeATASCIIText(raw)
+		if err != nil {
+			return fail(err)
+		}
+		if args.SearchScreen {
+			for i, b := range pattern {
+				pattern[i] = ATASCIIToScreen(b)
+			}
+		}
+	} else {
+		pattern, err = memory.ParseHexPayload(raw)
+		if err != nil {
+			return fail(err)
+		}
+	}
+	if len(pattern) == 0 || len(pattern) > 0xFF {
+		return fail(errors.New("Pattern length must be in range 1..255."))
+	}
+	payload := make([]byte, 6+len(pattern))
+	payload[0] = searchModeBytes
+	binary.LittleEndian.PutUint16(payload[1:3], start)
+	binary.LittleEndian.PutUint16(payload[3:5], end)
+	payload[5] = byte(len(pattern))
+	copy(payload[6:], pattern)
+	data, err := rpcClient(socket).Call(context.Background(), CmdSearch, payload)
+	if err != nil {
+		return fail(err)
+	}
+	if len(data) < 6 {
+		return fail(errors.New("SEARCH payload too short"))
+	}
+	total := binary.LittleEndian.Uint32(data[0:4])
+	returned := int(binary.LittleEndian.Uint16(data[4:6]))
+	expected := 6 + returned*2
+	if len(data) < expected {
+		return fail(fmt.Errorf("SEARCH payload too short: got=%d expected=%d", len(data), expected))
+	}
+	fmt.Printf("matches=%d returned=%d\n", total, returned)
+	offset := 6
+	for i := 0; i < returned; i++ {
+		fmt.Printf("%04X\n", binary.LittleEndian.Uint16(data[offset:offset+2]))
+		offset += 2
+	}
+	return 0
+}
+
+func cmdSetReg(socket string, args cliSetRegCmd) int {
+	target := setRegTargets[strings.ToLower(args.Target)]
+	value, err := memory.ParseHex(args.Value)
+	if err != nil {
+		return fail(err)
+	}
+	payload := make([]byte, 3)
+	payload[0] = target
+	binary.LittleEndian.PutUint16(payload[1:3], value)
+	if _, err := rpcClient(socket).Call(context.Background(), CmdSetReg, payload); err != nil {
+		return fail(err)
 	}
 	return 0
 }
@@ -474,6 +1013,22 @@ var bpOpNames = map[byte]string{
 	5: ">=",
 	6: ">",
 }
+
+var setRegTargets = map[string]byte{
+	"pc": 1,
+	"a":  2,
+	"x":  3,
+	"y":  4,
+	"s":  5,
+	"n":  6,
+	"v":  7,
+	"d":  8,
+	"i":  9,
+	"z":  10,
+	"c":  11,
+}
+
+const searchModeBytes byte = 1
 
 func cmdBPList(socket string) int {
 	list, err := rpcClient(socket).BPList(context.Background())
@@ -620,7 +1175,7 @@ func formatBPCondition(cond BreakpointCondition) string {
 }
 
 func cmdEmulatorConfig(socket string) int {
-	caps, err := rpcClient(socket).Config(context.Background())
+	caps, err := rpcClient(socket).BuildFeatures(context.Background())
 	if err != nil {
 		return fail(err)
 	}
@@ -720,7 +1275,7 @@ func cmdWriteMem(socket string, args cliWriteMemCmd) int {
 
 func resolveWriteMemData(args cliWriteMemCmd, hasBytes bool, hasHex bool) ([]byte, error) {
 	if hasBytes {
-		return parseHexValues(args.Bytes)
+		return memory.ParseHexValues(args.Bytes)
 	}
 	if hasHex {
 		text := strings.TrimSpace(*args.Hex)
@@ -731,7 +1286,7 @@ func resolveWriteMemData(args cliWriteMemCmd, hasBytes bool, hasHex bool) ([]byt
 			}
 			text = string(raw)
 		}
-		return parseHexPayload(text)
+		return memory.ParseHexPayload(text)
 	}
 	text := *args.Text
 	if text == "-" {
@@ -747,76 +1302,46 @@ func resolveWriteMemData(args cliWriteMemCmd, hasBytes bool, hasHex bool) ([]byt
 	return []byte(text), nil
 }
 
-func parseHexValues(tokens []string) ([]byte, error) {
-	out := make([]byte, 0, len(tokens))
-	for _, tok := range tokens {
-		v, err := memory.ParseHex(tok)
-		if err != nil {
-			return nil, fmt.Errorf("Invalid hex value: %s", tok)
-		}
-		if v <= 0xFF {
-			out = append(out, byte(v))
-			continue
-		}
-		out = append(out, byte(v&0xFF), byte(v>>8))
-	}
-	return out, nil
-}
-
-func parseHexByteToken(token string) (byte, error) {
-	v, err := memory.ParseHex(token)
-	if err != nil {
-		return 0, fmt.Errorf("Invalid hex byte: %s", token)
-	}
-	if v > 0xFF {
-		return 0, fmt.Errorf("Hex byte out of range: %s", token)
-	}
-	return byte(v), nil
-}
-
-func parseHexPayload(text string) ([]byte, error) {
-	normalized := strings.ReplaceAll(text, ",", " ")
-	fields := strings.Fields(normalized)
-	if len(fields) == 0 {
-		return nil, errors.New("Hex payload is empty.")
-	}
-	if len(fields) > 1 {
-		out := make([]byte, 0, len(fields))
-		for _, tok := range fields {
-			b, err := parseHexByteToken(tok)
-			if err != nil {
-				return nil, err
-			}
-			out = append(out, b)
-		}
-		return out, nil
-	}
-	value := strings.TrimSpace(strings.ToLower(fields[0]))
-	value = strings.TrimPrefix(value, "$")
-	value = strings.TrimPrefix(value, "0x")
-	if value == "" {
-		return nil, errors.New("Hex payload is empty.")
-	}
-	if len(value)%2 != 0 {
-		return nil, errors.New("Hex payload must have an even number of digits.")
-	}
-	out := make([]byte, 0, len(value)/2)
-	for i := 0; i < len(value); i += 2 {
-		v, err := strconv.ParseUint(value[i:i+2], 16, 8)
-		if err != nil {
-			return nil, errors.New("Invalid hex payload.")
-		}
-		out = append(out, byte(v))
-	}
-	return out, nil
-}
-
 func toScreenCodes(data []byte) []byte {
 	out := make([]byte, len(data))
 	for i, b := range data {
 		out[i] = ATASCIIToScreen(b)
 	}
 	return out
+}
+
+func fmtBytes(values []byte) string {
+	if len(values) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(values))
+	for _, v := range values {
+		parts = append(parts, fmt.Sprintf("%02X", v))
+	}
+	return strings.Join(parts, " ")
+}
+
+func parseBool(value string) (bool, error) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "1", "on", "true", "yes":
+		return true, nil
+	case "0", "off", "false", "no":
+		return false, nil
+	}
+	return false, fmt.Errorf("Invalid boolean value: %s", value)
+}
+
+func blineModeName(mode byte) string {
+	switch mode {
+	case 0:
+		return "disabled"
+	case 1:
+		return "break"
+	case 2:
+		return "blink"
+	default:
+		return fmt.Sprintf("mode%d", mode)
+	}
 }
 
 func cmdDisasm(socket string, args cliDisasmCmd) int {

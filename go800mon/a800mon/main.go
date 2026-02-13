@@ -252,6 +252,7 @@ func buildShortcuts(dispatcher *ActionDispatcher, screen *Screen, wdlist, wwatch
 	}
 	step := NewShortcut(KeyF(5), "Step", stepWithFollow(ActionStep))
 	stepVBlank := NewShortcut(KeyF(6), "Step VBLANK", stepWithFollow(ActionStepVBlank))
+	stepOver := NewShortcut(KeyF(7), "Step over", stepWithFollow(ActionStepOver))
 	pause := action(KeyF(8), "Pause", ActionPause)
 	cont := action(KeyF(8), "Continue", ActionContinue)
 	enterShutdown := action(27, "Shutdown", ActionEnterShutdown)
@@ -260,12 +261,14 @@ func buildShortcuts(dispatcher *ActionDispatcher, screen *Screen, wdlist, wwatch
 	normal := NewShortcutLayer("NORMAL", ColorAppMode)
 	_ = normal.Add(step)
 	_ = normal.Add(stepVBlank)
+	_ = normal.Add(stepOver)
 	_ = normal.Add(pause)
 	_ = normal.Add(enterShutdown)
 
 	debug := NewShortcutLayer("DEBUG", ColorAppModeDebug)
 	_ = debug.Add(step)
 	_ = debug.Add(stepVBlank)
+	_ = debug.Add(stepOver)
 	_ = debug.Add(cont)
 	_ = debug.Add(enterShutdown)
 

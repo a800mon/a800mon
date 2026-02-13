@@ -7,6 +7,7 @@ type Action int
 const (
 	ActionStep Action = iota + 1
 	ActionStepVBlank
+	ActionStepOver
 	ActionPause
 	ActionContinue
 	ActionSyncMode
@@ -64,6 +65,8 @@ func (d *ActionDispatcher) Dispatch(action Action, value any) error {
 		d.enqueue(CmdStep)
 	case ActionStepVBlank:
 		d.enqueue(CmdStepVBlank)
+	case ActionStepOver:
+		d.enqueue(CmdStepOver)
 	case ActionPause:
 		d.enqueue(CmdPause)
 		store.setActiveMode(AppModeDebug)

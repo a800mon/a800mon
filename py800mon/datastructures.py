@@ -69,6 +69,93 @@ class CpuState:
         )
 
 
+@dataclasses.dataclass(frozen=True)
+class GtiaState:
+    hposp: tuple[int, int, int, int]
+    hposm: tuple[int, int, int, int]
+    sizep: tuple[int, int, int, int]
+    sizem: int
+    grafp: tuple[int, int, int, int]
+    grafm: int
+    colpm: tuple[int, int, int, int]
+    colpf: tuple[int, int, int, int]
+    colbk: int
+    prior: int
+    vdelay: int
+    gractl: int
+
+
+@dataclasses.dataclass(frozen=True)
+class AnticState:
+    dmactl: int
+    chactl: int
+    dlist: int
+    hscrol: int
+    vscrol: int
+    pmbase: int
+    chbase: int
+    vcount: int
+    nmien: int
+    ypos: int
+
+
+@dataclasses.dataclass(frozen=True)
+class CartSlotState:
+    present: int
+    cart_type: int
+    state: int
+    size_kb: int
+    raw: int
+
+
+@dataclasses.dataclass(frozen=True)
+class CartState:
+    autoreboot: int
+    main: CartSlotState
+    piggy: CartSlotState
+
+
+@dataclasses.dataclass(frozen=True)
+class JumpsState:
+    pcs: tuple[int, ...]
+
+
+@dataclasses.dataclass(frozen=True)
+class PiaState:
+    pactl: int
+    pbctl: int
+    porta: int
+    portb: int
+
+
+@dataclasses.dataclass(frozen=True)
+class PokeyState:
+    stereo_enabled: int
+    audf1: tuple[int, int, int, int]
+    audc1: tuple[int, int, int, int]
+    audctl1: int
+    kbcode: int
+    irqen: int
+    irqst: int
+    skstat: int
+    skctl: int
+    audf2: typing.Optional[tuple[int, int, int, int]] = None
+    audc2: typing.Optional[tuple[int, int, int, int]] = None
+    audctl2: typing.Optional[int] = None
+
+
+@dataclasses.dataclass(frozen=True)
+class StackEntry:
+    stack_off: int
+    value: int
+
+
+@dataclasses.dataclass(frozen=True)
+class StackState:
+    s: int
+    entries: tuple[StackEntry, ...]
+
+
 class DisplayListEntry:
     def __init__(self, addr: int, command: int, arg: int):
         self.addr = addr

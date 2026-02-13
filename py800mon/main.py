@@ -249,6 +249,11 @@ async def main(scr, socket_path):
             "Step VBLANK",
             step_with_follow(Actions.STEP_VBLANK),
         )
+        step_over = Shortcut(
+            curses.KEY_F0 + 7,
+            "Step over",
+            step_with_follow(Actions.STEP_OVER),
+        )
         pause = action(curses.KEY_F0 + 8, "Pause", Actions.PAUSE)
         cont = action(curses.KEY_F0 + 8, "Continue", Actions.CONTINUE)
         enter_shutdown = action(27, "Shutdown", Actions.ENTER_SHUTDOWN)
@@ -257,12 +262,14 @@ async def main(scr, socket_path):
         normal = ShortcutLayer("NORMAL")
         normal.add(step)
         normal.add(step_vblank)
+        normal.add(step_over)
         normal.add(pause)
         normal.add(enter_shutdown)
 
         debug = ShortcutLayer("DEBUG", color=Color.APPMODE_DEBUG)
         debug.add(step)
         debug.add(step_vblank)
+        debug.add(step_over)
         debug.add(cont)
         debug.add(enter_shutdown)
 
