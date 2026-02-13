@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"hash/fnv"
 	"strings"
+	"time"
 
 	"go800mon/internal/atascii"
 	dl "go800mon/internal/displaylist"
@@ -19,6 +20,8 @@ type ScreenBufferInspector struct {
 	rows           []ScreenRow
 	lastUseATASCII bool
 	lastSnapshot   string
+	rpcThrottle    time.Duration
+	nextRPCAt      time.Time
 }
 
 type rowRangeIndex struct {
@@ -37,6 +40,7 @@ func NewScreenBufferInspector(rpc *RpcClient, window *Window) *ScreenBufferInspe
 		BaseWindowComponent: NewBaseWindowComponent(window),
 		rpc:                 rpc,
 		grid:                grid,
+		rpcThrottle:         100 * time.Millisecond,
 	}
 }
 
@@ -62,6 +66,11 @@ func (s *ScreenBufferInspector) Update(ctx context.Context) (bool, error) {
 	if State().InputFocus {
 		return false, nil
 	}
+	now := time.Now()
+	if now.Before(s.nextRPCAt) {
+		return false, nil
+	}
+	s.nextRPCAt = now.Add(s.rpcThrottle)
 	st := State()
 	mapper := dl.NewMemoryMapper(st.DList, st.DMACTL, 0x400)
 	fetchRanges, rowSlices := mapper.Plan()

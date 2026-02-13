@@ -1,4 +1,5 @@
 import dataclasses
+import time
 
 from . import debug
 from .actions import Actions
@@ -51,6 +52,8 @@ class ScreenBufferInspector(VisualRpcComponent):
         self._dmactl = 0
         self._last_use_atascii = None
         self._screen_buffer = ScreenBuffer()
+        self._rpc_throttle_s = 0.1
+        self._next_rpc_at = 0.0
 
     @property
     def cols(self):
@@ -169,6 +172,10 @@ class ScreenBufferInspector(VisualRpcComponent):
         self.grid.render()
 
     async def update(self):
+        now = time.monotonic()
+        if now < self._next_rpc_at:
+            return False
+        self._next_rpc_at = now + self._rpc_throttle_s
         try:
             dmactl = await self.rpc.read_byte(DMACTL_ADDR)
             if (dmactl & 0x03) == 0:
