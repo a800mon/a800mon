@@ -61,7 +61,7 @@ func (s *StatusUpdater) Tick(ctx context.Context) (bool, error) {
 		st.Crashed != status.Crashed ||
 		st.StateSeq != status.StateSeq
 	if changed {
-		s.dispatcher.updateStatus(status)
+		_ = s.dispatcher.Dispatch(ActionSetStatus, status)
 	}
 	if changed || forced {
 		s.updateCPU(ctx)
@@ -89,7 +89,10 @@ func (s *StatusUpdater) updateCPU(ctx context.Context) {
 	if code, err := s.rpc.ReadMemory(ctx, cpu.PC, 3); err == nil {
 		cpuDisasm = disasm.DisasmOne(cpu.PC, code)
 	}
-	s.dispatcher.updateCPU(cpu, cpuDisasm)
+	_ = s.dispatcher.Dispatch(
+		ActionSetCPU,
+		CPUUpdate{CPU: cpu, Disasm: cpuDisasm},
+	)
 }
 
 func (s *StatusUpdater) syncRPCError() {
@@ -99,7 +102,7 @@ func (s *StatusUpdater) syncRPCError() {
 		text = err.Error()
 	}
 	if State().LastRPCError != text {
-		s.dispatcher.updateLastRPCError(text)
+		_ = s.dispatcher.Dispatch(ActionSetLastRPCError, text)
 	}
 }
 
@@ -116,7 +119,7 @@ func (s *StatusUpdater) updateCapabilities(ctx context.Context) bool {
 		}
 	}
 	if State().BreakpointsSupported != supported {
-		s.dispatcher.updateBreakpointsSupported(supported)
+		_ = s.dispatcher.Dispatch(ActionSetBreakpointsSupported, supported)
 	}
 	return true
 }

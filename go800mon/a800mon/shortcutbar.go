@@ -3,12 +3,12 @@ package a800mon
 import "context"
 
 type ShortcutBar struct {
-	BaseVisualComponent
+	BaseWindowComponent
 	lastMode AppMode
 }
 
 func NewShortcutBar(window *Window) *ShortcutBar {
-	return &ShortcutBar{BaseVisualComponent: NewBaseVisualComponent(window)}
+	return &ShortcutBar{BaseWindowComponent: NewBaseWindowComponent(window)}
 }
 
 func (s *ShortcutBar) Update(_ctx context.Context) (bool, error) {

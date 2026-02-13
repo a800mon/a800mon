@@ -1,13 +1,15 @@
 import dataclasses
+import time
 
 from . import debug
+from .actions import Actions
 from .app import VisualRpcComponent
-from .appstate import state, store
+from .appstate import state
 from .atascii import atascii_to_curses, screen_to_atascii
 from .datastructures import ScreenBuffer
 from .displaylist import DMACTL_ADDR, DMACTL_HW_ADDR, DisplayListMemoryMapper
 from .rpc import RpcException
-from .ui import Color
+from .ui import Color, GridWidget
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -40,11 +42,18 @@ class ScreenBufferCell:
 class ScreenBufferInspector(VisualRpcComponent):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.grid = GridWidget(self.window, col_gap=0)
+        self.grid.add_column("address", width=0, attr=Color.ADDRESS.attr())
+        self.grid.add_column("content", width=0, attr=Color.TEXT.attr())
+        self.grid.set_selection_enabled(False)
         self._inspect = False
         self._cx = 0
         self._cy = 0
         self._dmactl = 0
         self._last_use_atascii = None
+        self._screen_buffer = ScreenBuffer()
+        self._rpc_throttle_s = 0.1
+        self._next_rpc_at = 0.0
 
     @property
     def cols(self):
@@ -94,6 +103,12 @@ class ScreenBufferInspector(VisualRpcComponent):
     def is_inspecting(self) -> bool:
         return self._inspect
 
+    def handle_input(self, ch):
+        if ch in (ord(" "), ord("a"), ord("A")):
+            self.app.dispatch_action(Actions.SET_ATASCII, not state.use_atascii)
+            return True
+        return self.grid.handle_input(ch)
+
     @property
     def cursor(self) -> tuple[int, int]:
         return self._cx, self._cy
@@ -112,30 +127,18 @@ class ScreenBufferInspector(VisualRpcComponent):
             self.window.set_tag_active("atascii", state.use_atascii)
             self.window.set_tag_active("ascii", not state.use_atascii)
 
-        self.window.cursor = 0, 0
-        segs = state.dlist.screen_segments(self._dmactl)
-        active_seg = None
-        if state.dlist_selected_region is not None and segs:
-            if 0 <= state.dlist_selected_region < len(segs):
-                active_seg = segs[state.dlist_selected_region]
         content_width = self.window._iw - 8
         if content_width < 0:
             content_width = 0
         rows_to_draw = []
-        for row_info in state.screen_buffer.row_slices:
-            if len(rows_to_draw) >= self.window._ih:
-                break
-            parsed = _parse_row_info(row_info, state.screen_buffer.start_address)
+        for row_info in self._screen_buffer.row_slices:
+            parsed = _parse_row_info(row_info, self._screen_buffer.start_address)
             if not parsed:
                 continue
             start_addr, length = parsed
-            if active_seg is not None:
-                start, end, _mode = active_seg
-                if not (start <= start_addr < end):
-                    continue
             if length <= 0:
                 continue
-            row = state.screen_buffer.get_range(start_addr, length)[:content_width]
+            row = self._screen_buffer.get_range(start_addr, length)[:content_width]
             rows_to_draw.append((start_addr, row))
         draw_width = 0
         for _addr, row in rows_to_draw:
@@ -144,7 +147,7 @@ class ScreenBufferInspector(VisualRpcComponent):
         if draw_width > content_width:
             draw_width = content_width
 
-        printed_rows = 0
+        rows = []
         for start_addr, row in rows_to_draw:
             row = row[:draw_width]
             left_pad = 0
@@ -152,42 +155,31 @@ class ScreenBufferInspector(VisualRpcComponent):
             if draw_width > len(row):
                 left_pad = (draw_width - len(row)) // 2
                 right_pad = draw_width - len(row) - left_pad
-            self.window.print(f"{start_addr:04X}: ", attr=Color.ADDRESS.attr())
+            content = ""
             if left_pad > 0:
-                self.window.print("·" * left_pad, attr=Color.UNUSED.attr())
-            for text, attr in _render_runs(row, state.use_atascii):
-                self.window.print(text, attr=attr)
+                content += "·" * left_pad
+            for text, _attr in _render_runs(row, state.use_atascii):
+                if text:
+                    content += text
             if right_pad > 0:
-                self.window.print("·" * right_pad, attr=Color.UNUSED.attr())
-            self.window.clear_to_eol()
-            self.window.newline()
-            printed_rows += 1
-        self.window.clear_to_bottom()
+                content += "·" * right_pad
+            rows.append((f"{start_addr:04X}: ", content))
 
-        if not self._inspect:
-            return
-
-        self.window.invert_char(self._cx, self._cy)
+        self.grid.set_data(rows)
+        self.grid.set_selected_row(None)
+        self.grid.render()
 
     async def update(self):
+        now = time.monotonic()
+        if now < self._next_rpc_at:
+            return False
+        self._next_rpc_at = now + self._rpc_throttle_s
         try:
             dmactl = await self.rpc.read_byte(DMACTL_ADDR)
             if (dmactl & 0x03) == 0:
                 dmactl = await self.rpc.read_byte(DMACTL_HW_ADDR)
             mapper = DisplayListMemoryMapper(state.dlist, dmactl)
             fetch_ranges, row_slices = mapper.plan()
-            segs = state.dlist.screen_segments(dmactl)
-            if (
-                state.dlist_selected_region is not None
-                and 0 <= state.dlist_selected_region < len(segs)
-            ):
-                seg_start, seg_end, _mode = segs[state.dlist_selected_region]
-                fetch_ranges = [(seg_start, seg_end)]
-                row_slices = [
-                    (addr, length)
-                    for addr, length in mapper.row_ranges()
-                    if addr is not None and seg_start <= addr < seg_end
-                ]
             chunks = []
             for s, e in fetch_ranges:
                 chunks.append(await self.rpc.read_memory(s, e - s))
@@ -198,13 +190,11 @@ class ScreenBufferInspector(VisualRpcComponent):
             for s, e in fetch_ranges:
                 range_index.append((s, e, offset))
                 offset += e - s
-            store.set_screen_buffer(
-                ScreenBuffer(
-                    row_slices=row_slices,
-                    buffer=buffer,
-                    start_address=start_address,
-                    range_index=range_index,
-                )
+            self._screen_buffer = ScreenBuffer(
+                row_slices=row_slices,
+                buffer=buffer,
+                start_address=start_address,
+                range_index=range_index,
             )
             self._dmactl = dmactl
             return True

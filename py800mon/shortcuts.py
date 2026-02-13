@@ -28,29 +28,41 @@ def _normalize_key(key: int) -> int:
     return v
 
 
+def key_as_text(key: int) -> str:
+    key = _normalize_key(key)
+    if key in KEYS_STR_MAP:
+        return KEYS_STR_MAP[key]
+
+    if key >= curses.KEY_F0 and key <= curses.KEY_F0 + 63:
+        return f"F{key - curses.KEY_F0}"
+
+    if key < 32:
+        return "^" + chr(key + 64)
+
+    if key > 126:
+        return str(key)
+
+    return chr(key).upper()
+
+
 class Shortcut:
-    def __init__(self, key, label: str, callback: callable):
+    def __init__(
+        self,
+        key,
+        label: str,
+        callback: callable,
+        visible_in_global_bar: bool = True,
+    ):
         if isinstance(key, str):
             self.key = _normalize_key(ord(key[0]))
         else:
             self.key = _normalize_key(int(key))
         self.label = label
         self.callback = callback
+        self.visible_in_global_bar = bool(visible_in_global_bar)
 
     def key_as_text(self):
-        if self.key in KEYS_STR_MAP:
-            return KEYS_STR_MAP[self.key]
-
-        if self.key >= curses.KEY_F0 and self.key <= curses.KEY_F0 + 63:
-            return f"F{self.key - curses.KEY_F0}"
-
-        if self.key < 32:
-            return "^" + chr(self.key + 64)
-
-        if self.key > 126:
-            return str(self.key)
-
-        return chr(self.key).upper()
+        return key_as_text(self.key)
 
     def __repr__(self):
         return f'<Shortcut key="{self.key_as_text()}" label="{self.label}">'
@@ -97,7 +109,7 @@ class ShortcutManager:
         return self._globals[_normalize_key(key)]
 
     def global_shortcuts(self):
-        return self._globals.values()
+        return [s for s in self._globals.values() if s.visible_in_global_bar]
 
     def add(self, layer_id: str, layer: ShortcutLayer):
         if layer_id in self._layers:

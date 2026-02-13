@@ -8,33 +8,50 @@ import (
 	"go800mon/internal/disasm"
 )
 
+var historyFlowMnemonics = map[string]struct{}{
+	"JMP": {}, "JSR": {}, "BCC": {}, "BCS": {}, "BEQ": {}, "BMI": {},
+	"BNE": {}, "BPL": {}, "BVC": {}, "BVS": {}, "BRA": {},
+}
+
 type HistoryViewer struct {
-	BaseVisualComponent
+	BaseWindowComponent
 	rpc          *RpcClient
+	grid         *GridWidget
 	reverseOrder bool
 	lastSnapshot string
 	nextRow      *DisasmRow
 	decodeCache  map[string]DisasmRow
+	followLive   bool
 }
 
 func NewHistoryViewer(rpc *RpcClient, window *Window, reverseOrder bool) *HistoryViewer {
+	grid := NewGridWidget(window)
+	grid.SetColumnGap(1)
+	grid.AddColumn("address", 5, ColorAddress.Attr(), nil)
+	grid.AddColumn("opcode1", 2, ColorText.Attr(), nil)
+	grid.AddColumn("opcode2", 2, ColorText.Attr(), nil)
+	grid.AddColumn("opcode3", 2, ColorText.Attr(), nil)
+	grid.AddColumn("mnemonic", 4, ColorMnemonic.Attr(), nil)
+	grid.AddColumn("argument", 14, ColorText.Attr(), historyArgumentAttr)
+	grid.AddColumn("comment", 0, ColorComment.Attr(), nil)
 	return &HistoryViewer{
-		BaseVisualComponent: NewBaseVisualComponent(window),
+		BaseWindowComponent: NewBaseWindowComponent(grid.Window()),
 		rpc:                 rpc,
+		grid:                grid,
 		reverseOrder:        reverseOrder,
 		decodeCache:         map[string]DisasmRow{},
+		followLive:          true,
 	}
 }
 
 func (h *HistoryViewer) Update(ctx context.Context) (bool, error) {
-	if State().InputFocus {
-		return false, nil
-	}
 	entries, err := h.rpc.History(ctx)
 	if err != nil {
 		return false, nil
 	}
-	store.setHistory(entries)
+	if app := h.App(); app != nil {
+		app.DispatchAction(ActionSetHistory, entries)
+	}
 	st := State()
 	if code, err := h.rpc.ReadMemory(ctx, st.CPU.PC, 3); err == nil {
 		if ins := disasm.DecodeOne(st.CPU.PC, code); ins != nil {
@@ -64,50 +81,50 @@ func buildHistorySnapshot(pc uint16, entries []CpuHistoryEntry, next *DisasmRow)
 
 func (h *HistoryViewer) Render(_force bool) {
 	st := State()
-	w := h.Window()
-	ih := w.Height()
-	if ih <= 0 {
-		return
-	}
-	w.Cursor(0, 0)
-
 	next := h.nextRow
 	if next == nil {
-		row := DisasmRow{Addr: st.CPU.PC, RawText: "", AsmText: st.CPUDisasm}
+		row := DisasmRow{Addr: st.CPU.PC, RawText: "", Comment: st.CPUDisasm}
 		next = &row
 	}
-
+	rows := make([][]string, 0, len(st.History)+1)
+	selected := 0
 	if h.reverseOrder {
-		rows := reverseHistory(st.History)
-		limit := ih - 1
-		if limit < 0 {
-			limit = 0
+		for _, e := range reverseHistory(st.History) {
+			rows = append(rows, h.historyRowCells(e))
 		}
-		if len(rows) > limit {
-			rows = rows[:limit]
-		}
-		for _, e := range rows {
-			h.printHistoryRow(e)
-		}
-		h.printDecodedRow(*next, AttrReverse())
-		w.FillToEOL(' ', AttrReverse())
-		w.Newline()
+		rows = append(rows, h.decodedRowCells(*next))
+		selected = len(rows) - 1
 	} else {
-		h.printDecodedRow(*next, AttrReverse())
-		w.FillToEOL(' ', AttrReverse())
-		w.Newline()
-		rows := st.History
-		if len(rows) > ih-1 {
-			rows = rows[:ih-1]
+		rows = append(rows, h.decodedRowCells(*next))
+		for _, e := range st.History {
+			rows = append(rows, h.historyRowCells(e))
 		}
-		for _, e := range rows {
-			h.printHistoryRow(e)
-		}
+		selected = 0
 	}
-	w.ClearToBottom()
+	h.grid.SetData(rows)
+	if len(rows) == 0 {
+		h.grid.SetSelectedRow(nil)
+	} else if h.followLive {
+		h.grid.SetSelectedRow(&selected)
+	} else if _, ok := h.grid.SelectedRow(); !ok {
+		h.grid.SetSelectedRow(&selected)
+	}
+	h.grid.Render()
 }
 
-func (h *HistoryViewer) printHistoryRow(entry CpuHistoryEntry) {
+func (h *HistoryViewer) HandleInput(ch int) bool {
+	if !h.grid.HandleInput(ch) {
+		return false
+	}
+	if h.reverseOrder {
+		h.followLive = ch == KeyEnd() || ch == 360
+	} else {
+		h.followLive = ch == KeyHome() || ch == 262
+	}
+	return true
+}
+
+func (h *HistoryViewer) decodeHistoryRow(entry CpuHistoryEntry) DisasmRow {
 	key := fmt.Sprintf("%04X-%02X-%02X-%02X", entry.PC, entry.Op0, entry.Op1, entry.Op2)
 	row, ok := h.decodeCache[key]
 	if !ok {
@@ -121,17 +138,24 @@ func (h *HistoryViewer) printHistoryRow(entry CpuHistoryEntry) {
 			h.decodeCache = map[string]DisasmRow{}
 		}
 	}
-	h.printDecodedRow(row, 0)
-	h.Window().ClearToEOL(false)
-	h.Window().Newline()
+	return row
 }
 
-func (h *HistoryViewer) printDecodedRow(row DisasmRow, rev int) {
-	w := h.Window()
-	w.Print(formatHex16(row.Addr)+":", ColorAddress.Attr()|rev, false)
-	w.Print(" ", rev, false)
-	w.Print(padRight(row.RawText, 8)+" ", rev, false)
-	printAsmRow(w, row, rev)
+func (h *HistoryViewer) historyRowCells(entry CpuHistoryEntry) []string {
+	return h.decodedRowCells(h.decodeHistoryRow(entry))
+}
+
+func (h *HistoryViewer) decodedRowCells(row DisasmRow) []string {
+	op1, op2, op3 := opcodeColumns(row.RawText)
+	return []string{
+		formatHex16(row.Addr) + ":",
+		op1,
+		op2,
+		op3,
+		row.Mnemonic,
+		row.Operand,
+		row.Comment,
+	}
 }
 
 func disasmToRow(ins disasm.DecodedInstruction) DisasmRow {
@@ -161,4 +185,31 @@ func reverseHistory(entries []CpuHistoryEntry) []CpuHistoryEntry {
 		out = append(out, entries[i])
 	}
 	return out
+}
+
+func opcodeColumns(rawText string) (string, string, string) {
+	parts := strings.Fields(rawText)
+	op1 := ""
+	op2 := ""
+	op3 := ""
+	if len(parts) > 0 {
+		op1 = parts[0]
+	}
+	if len(parts) > 1 {
+		op2 = parts[1]
+	}
+	if len(parts) > 2 {
+		op3 = parts[2]
+	}
+	return op1, op2, op3
+}
+
+func historyArgumentAttr(_value string, row []string) int {
+	if len(row) <= 4 {
+		return ColorText.Attr()
+	}
+	if _, ok := historyFlowMnemonics[strings.ToUpper(strings.TrimSpace(row[4]))]; ok {
+		return ColorAddress.Attr()
+	}
+	return ColorText.Attr()
 }

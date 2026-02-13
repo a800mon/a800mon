@@ -3,35 +3,23 @@ package a800mon
 import "fmt"
 
 type Shortcut struct {
-	Key      int
-	Label    string
-	Callback func()
+	Key                int
+	Label              string
+	Callback           func()
+	VisibleInGlobalBar bool
 }
 
 func NewShortcut(key int, label string, callback func()) Shortcut {
-	return Shortcut{Key: normalizeShortcutKey(key), Label: label, Callback: callback}
+	return Shortcut{
+		Key:                normalizeShortcutKey(key),
+		Label:              label,
+		Callback:           callback,
+		VisibleInGlobalBar: true,
+	}
 }
 
 func (s Shortcut) KeyAsText() string {
-	if s.Key == 27 {
-		return "Esc"
-	}
-	if s.Key == 9 {
-		return "Tab"
-	}
-	if s.Key >= KeyF0() && s.Key <= KeyF0()+63 {
-		return fmt.Sprintf("F%d", s.Key-KeyF0())
-	}
-	if s.Key < 32 {
-		return "^" + string(rune(s.Key+64))
-	}
-	if s.Key > 126 {
-		return fmt.Sprintf("%d", s.Key)
-	}
-	if s.Key >= int('a') && s.Key <= int('z') {
-		return string(rune(s.Key - 32))
-	}
-	return string(rune(s.Key))
+	return shortcutKeyAsText(s.Key)
 }
 
 type ShortcutLayer struct {
@@ -125,10 +113,37 @@ func normalizeShortcutKey(key int) int {
 	return key
 }
 
+func shortcutKeyAsText(key int) string {
+	key = normalizeShortcutKey(key)
+	if key == 27 {
+		return "Esc"
+	}
+	if key == 9 {
+		return "Tab"
+	}
+	if key >= KeyF0() && key <= KeyF0()+63 {
+		return fmt.Sprintf("F%d", key-KeyF0())
+	}
+	if key < 32 {
+		return "^" + string(rune(key+64))
+	}
+	if key > 126 {
+		return fmt.Sprintf("%d", key)
+	}
+	if key >= int('a') && key <= int('z') {
+		return string(rune(key - 32))
+	}
+	return string(rune(key))
+}
+
 func (m *ShortcutManager) Globals() []Shortcut {
 	out := make([]Shortcut, 0, len(m.globalsOrder))
 	for _, key := range m.globalsOrder {
-		out = append(out, m.globals[key])
+		shortcut := m.globals[key]
+		if !shortcut.VisibleInGlobalBar {
+			continue
+		}
+		out = append(out, shortcut)
 	}
 	return out
 }

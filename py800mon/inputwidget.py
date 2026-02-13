@@ -1,8 +1,8 @@
 import curses
 
 from .actions import Actions
-from .app import InputComponent, VisualComponent
-from .appstate import state
+from .app import Component, VisualComponent
+from .memory import parse_hex_u16
 from .ui import Color
 
 
@@ -20,6 +20,7 @@ class InputWidget(VisualComponent):
         self.max_length = max_length
         self.on_enter = on_enter
         self.on_change = on_change
+        self.invalid = False
         self._buffer = ""
 
     @property
@@ -33,7 +34,11 @@ class InputWidget(VisualComponent):
         self._buffer = text
 
     def deactivate(self):
+        self.invalid = False
         self._buffer = ""
+
+    def set_invalid(self, invalid: bool):
+        self.invalid = bool(invalid)
 
     def _normalize_char(self, ch: str) -> str:
         return ch
@@ -87,8 +92,9 @@ class InputWidget(VisualComponent):
 
     def render(self, force_redraw=False):
         self.window.cursor = 0, 0
-        attr = self.color.attr() | curses.A_REVERSE
-        text = state.input_buffer
+        color = Color.INPUT_INVALID if self.invalid else self.color
+        attr = color.attr() | curses.A_REVERSE
+        text = self._buffer
         self.window.print(text, attr=attr)
         self.window.fill_to_eol(attr=attr)
         cursor_x = len(text)
@@ -113,20 +119,21 @@ class AddressInputWidget(InputWidget):
     def _to_value(self):
         if not self._buffer:
             return None
-        return int(self._buffer, 16)
+        return parse_hex_u16(self._buffer)
 
     def render(self, force_redraw=False):
         self.window.cursor = 0, 0
-        attr = self.color.attr() | curses.A_REVERSE
-        text = state.input_buffer[-4:].upper().rjust(4, "0")
+        color = Color.INPUT_INVALID if self.invalid else self.color
+        attr = color.attr() | curses.A_REVERSE
+        text = self._buffer[-4:].upper().rjust(4, "0")
         self.window.print(text, attr=attr)
         self.window.fill_to_eol(attr=attr)
         self.window.cursor = (4, 0)
 
 
-class InputWidgetManager(InputComponent):
-    def __init__(self, dispatcher, rebuild_screen):
-        self._dispatcher = dispatcher
+class InputWidgetManager(Component):
+    def __init__(self, rebuild_screen):
+        super().__init__()
         self._rebuild_screen = rebuild_screen
         self._active_widget = None
         self._snapshot = ""
@@ -137,8 +144,7 @@ class InputWidgetManager(InputComponent):
         self._snapshot = str(initial_buffer)
         self._replace_on_next_input = True
         widget.activate(initial_buffer)
-        self._dispatcher.dispatch(Actions.SET_INPUT_BUFFER, widget.buffer)
-        self._dispatcher.dispatch(Actions.SET_INPUT_FOCUS, True)
+        self.app.dispatch_action(Actions.SET_INPUT_FOCUS, self.handle_input)
         widget.window.visible = True
         try:
             curses.curs_set(1)
@@ -149,7 +155,7 @@ class InputWidgetManager(InputComponent):
     def _close(self):
         if self._active_widget is None:
             return
-        self._dispatcher.dispatch(Actions.SET_INPUT_FOCUS, False)
+        self.app.dispatch_action(Actions.SET_INPUT_FOCUS, None)
         self._active_widget.window.visible = False
         self._active_widget.deactivate()
         self._active_widget = None
@@ -164,8 +170,6 @@ class InputWidgetManager(InputComponent):
     def _commit(self):
         if self._active_widget is None:
             return
-        self._dispatcher.dispatch(
-            Actions.SET_INPUT_BUFFER, self._active_widget.buffer)
         self._active_widget.emit_enter()
         self._close()
 
@@ -173,11 +177,10 @@ class InputWidgetManager(InputComponent):
         if self._active_widget is None:
             return
         self._active_widget.set_buffer(self._snapshot)
-        self._dispatcher.dispatch(Actions.SET_INPUT_BUFFER, self._snapshot)
         self._close()
 
     def handle_input(self, ch):
-        if not state.input_focus or self._active_widget is None:
+        if self._active_widget is None:
             return False
 
         if ch == 27:
@@ -190,21 +193,14 @@ class InputWidgetManager(InputComponent):
 
         if ch in (curses.KEY_BACKSPACE, 127, 8):
             self._replace_on_next_input = False
-            if self._active_widget.backspace():
-                self._dispatcher.dispatch(
-                    Actions.SET_INPUT_BUFFER, self._active_widget.buffer
-                )
+            self._active_widget.backspace()
             return True
 
         if self._replace_on_next_input:
             self._active_widget.set_buffer("")
-            self._dispatcher.dispatch(Actions.SET_INPUT_BUFFER, "")
             self._replace_on_next_input = False
 
         if self._active_widget.append_char(ch):
-            self._dispatcher.dispatch(
-                Actions.SET_INPUT_BUFFER, self._active_widget.buffer
-            )
             return True
 
         return False

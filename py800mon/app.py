@@ -1,29 +1,30 @@
 import asyncio
 import curses
+import enum
 import time
 
 from . import debug
-from .appstate import store
+from .appstate import state
 
 
 class StopLoop(Exception):
     pass
 
 
+class EventType(enum.Enum):
+    INPUT = enum.auto()
+    STATUS = enum.auto()
+
+
 class Component:
+    def __init__(self):
+        self.app = None
+
     async def update(self):
         return False
 
     def handle_input(self, ch):
         return False
-
-    async def post_render(self):
-        return False
-
-
-class InputComponent(Component):
-    pass
-
 
 class RpcComponent(Component):
     def __init__(self, rpc, *args, **kwargs):
@@ -33,6 +34,7 @@ class RpcComponent(Component):
 
 class VisualComponent(Component):
     def __init__(self, window):
+        super().__init__()
         self.window = window
 
     def render(self, force_redraw=False):
@@ -46,19 +48,32 @@ class VisualRpcComponent(VisualComponent):
 
 
 class App:
-    def __init__(self, screen, status_updater=None, input_timeout_ms=200):
+    def __init__(self, screen, dispatcher, status_updater=None, input_timeout_ms=200):
         self._screen = screen
+        self.screen = screen
+        self.dispatcher = dispatcher
         self._components = []
+        self._input_components = []
         self._visual_components = []
         self._event_queue = asyncio.Queue()
         self._status_updater = status_updater
         self._input_timeout_ms = int(input_timeout_ms)
 
     def add_component(self, component: Component):
+        component.app = self
         self._components.append(component)
         if isinstance(component, VisualComponent):
             self._screen.add(component.window)
+            self._screen.set_window_input_handler(
+                component.window,
+                component.handle_input,
+            )
             self._visual_components.append(component)
+            return
+        self._input_components.append(component)
+
+    def dispatch_action(self, action, value=None):
+        self.dispatcher.dispatch(action, value)
 
     def rebuild_screen(self):
         self._screen.rebuild()
@@ -69,6 +84,8 @@ class App:
         self._screen.update()
 
     async def loop(self):
+        from .actions import Actions
+
         loop = asyncio.get_running_loop()
         previous_handler = loop.get_exception_handler()
         loop.set_exception_handler(self._handle_async_exception)
@@ -86,15 +103,33 @@ class App:
             while True:
                 event_type, payload = await self._event_queue.get()
                 start_time = time.time()
+                was_frozen = state.ui_frozen
                 had_input = False
-                if event_type == "input":
+                if event_type == EventType.INPUT:
                     had_input = self.handle_input(payload)
+                if state.ui_frozen:
+                    if event_type == EventType.INPUT and had_input and not was_frozen:
+                        await self.render_components(force_redraw=True)
+                    time_diff = time.time() - start_time
+                    self.dispatch_action(
+                        Actions.SET_FRAME_TIME_MS,
+                        int(time_diff * 1000.0),
+                    )
+                    continue
                 had_updates = await self.update_state()
+                if (
+                    self._status_updater is not None
+                    and self.dispatcher.take_rpc_flushed()
+                ):
+                    self._status_updater.request_refresh()
                 await self.render_components(
                     force_redraw=had_input or had_updates
                 )
                 time_diff = time.time() - start_time
-                store.set_frame_time_ms(int(time_diff * 1000.0))
+                self.dispatch_action(
+                    Actions.SET_FRAME_TIME_MS,
+                    int(time_diff * 1000.0),
+                )
         except StopLoop:
             pass
         finally:
@@ -110,7 +145,11 @@ class App:
         if ch == curses.KEY_RESIZE:
             self.rebuild_screen()
             return True
-        for component in self._components:
+        if self._screen.has_input_focus():
+            return self._screen.handle_input(ch)
+        if self._screen.handle_input(ch):
+            return True
+        for component in self._input_components:
             if component.handle_input(ch):
                 return True
         return False
@@ -128,19 +167,18 @@ class App:
                     continue
                 component.render(force_redraw=True)
         if force_redraw or any(
-            component.window.visible and component.window._dirty
+            component.window.visible
+            and component.window._dirty
             for component in self._visual_components
         ):
             self._screen.update()
-        for component in self._components:
-            await component.post_render()
 
     async def _input_event_pump(self):
         while True:
             ch = await asyncio.to_thread(self._screen.get_input_char)
             if ch == -1:
                 continue
-            await self._event_queue.put(("input", ch))
+            await self._event_queue.put((EventType.INPUT, ch))
 
     def _handle_async_exception(self, loop, context):
         exc = context.get("exception")

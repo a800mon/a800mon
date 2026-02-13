@@ -2,11 +2,8 @@ import dataclasses
 import enum
 
 from .datastructures import (
-    BreakpointClauseEntry,
     CpuState,
     DisplayList,
-    ScreenBuffer,
-    WatcherEntry,
 )
 from .shortcuts import ShortcutManager
 
@@ -20,7 +17,6 @@ class AppMode(enum.Enum):
 @dataclasses.dataclass
 class AppStateData:
     dlist: DisplayList
-    screen_buffer: ScreenBuffer
     cpu: CpuState
     cpu_disasm: str
     monitor_frame_time_ms: int
@@ -30,25 +26,17 @@ class AppStateData:
     crashed: bool
     state_seq: int
     last_rpc_error: str | None
-    dlist_selected_region: int | None
     active_mode: AppMode
-    displaylist_inspect: bool
+    ui_frozen: bool
     use_atascii: bool
     disassembly_enabled: bool
     disassembly_addr: int | None
-    input_focus: bool
-    input_target: str | None
-    input_buffer: str
     dmactl: int
-    watchers: list[WatcherEntry]
-    breakpoints_enabled: bool
     breakpoints_supported: bool
-    breakpoints: list[BreakpointClauseEntry]
 
 
 _state = AppStateData(
     dlist=DisplayList(),
-    screen_buffer=ScreenBuffer(),
     cpu=CpuState(),
     cpu_disasm="",
     monitor_frame_time_ms=0,
@@ -58,20 +46,13 @@ _state = AppStateData(
     crashed=False,
     state_seq=0,
     last_rpc_error=None,
-    dlist_selected_region=None,
     active_mode=AppMode.NORMAL,
-    displaylist_inspect=False,
+    ui_frozen=False,
     use_atascii=True,
-    disassembly_enabled=False,
+    disassembly_enabled=True,
     disassembly_addr=None,
-    input_focus=False,
-    input_target=None,
-    input_buffer="",
     dmactl=0,
-    watchers=[],
-    breakpoints_enabled=False,
     breakpoints_supported=False,
-    breakpoints=[],
 )
 
 class StateStore:
@@ -81,8 +62,8 @@ class StateStore:
     def set_active_mode(self, mode: AppMode):
         self._s.active_mode = mode
 
-    def set_displaylist_inspect(self, enabled: bool):
-        self._s.displaylist_inspect = enabled
+    def set_ui_frozen(self, enabled: bool):
+        self._s.ui_frozen = bool(enabled)
 
     def set_use_atascii(self, enabled: bool):
         self._s.use_atascii = enabled
@@ -93,29 +74,8 @@ class StateStore:
     def set_disassembly_addr(self, addr: int):
         self._s.disassembly_addr = int(addr) & 0xFFFF
 
-    def set_input_focus(self, enabled: bool):
-        self._s.input_focus = enabled
-
-    def set_input_target(self, target: str | None):
-        self._s.input_target = None if target is None else str(target)
-
-    def set_input_buffer(self, value: str):
-        self._s.input_buffer = str(value)
-
-    def set_watchers(self, watchers: list[WatcherEntry]):
-        self._s.watchers = list(watchers)
-
-    def set_breakpoints(
-        self, enabled: bool, breakpoints: list[BreakpointClauseEntry]
-    ):
-        self._s.breakpoints_enabled = bool(enabled)
-        self._s.breakpoints = list(breakpoints)
-
     def set_breakpoints_supported(self, enabled: bool):
         self._s.breakpoints_supported = bool(enabled)
-
-    def set_dlist_selected_region(self, idx: int | None):
-        self._s.dlist_selected_region = idx
 
     def set_status(
         self, paused: bool, emu_ms: int, reset_ms: int, crashed: bool, state_seq: int
@@ -138,9 +98,6 @@ class StateStore:
     def set_dlist(self, dlist: DisplayList, dmactl: int):
         self._s.dlist = dlist
         self._s.dmactl = dmactl
-
-    def set_screen_buffer(self, screen_buffer: ScreenBuffer):
-        self._s.screen_buffer = screen_buffer
 
     def set_frame_time_ms(self, ms: int):
         self._s.monitor_frame_time_ms = ms

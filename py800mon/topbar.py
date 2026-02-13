@@ -1,4 +1,4 @@
-from .app import VisualComponent
+from .app import Component, VisualComponent
 from .appstate import state
 from .ui import Color
 
@@ -23,6 +23,7 @@ class TopBar(VisualComponent):
             state.emu_ms,
             state.reset_ms,
             state.monitor_frame_time_ms,
+            state.ui_frozen,
         )
         if self._last_snapshot == snapshot:
             return False
@@ -39,6 +40,9 @@ class TopBar(VisualComponent):
         else:
             self.window.print(
                 f"{TITLE}     {COPYTIGHT}", Color.TOPBAR.attr())
+            if state.ui_frozen:
+                self.window.print("   ", Color.TOPBAR.attr())
+                self.window.print(" FREEZE ", Color.ERROR.attr())
             self.window.fill_to_eol(attr=Color.TOPBAR.attr())
 
         segments = (

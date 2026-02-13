@@ -3,7 +3,6 @@ package memory
 import (
 	"encoding/json"
 	"fmt"
-	"strconv"
 	"strings"
 
 	"go800mon/internal/atascii"
@@ -132,15 +131,4 @@ func formatASCIIChunk(chunk []byte, useATASCII bool) string {
 		}
 	}
 	return ascii.String()
-}
-
-func ParseHex(value string) (uint16, error) {
-	text := strings.TrimSpace(strings.ToLower(value))
-	text = strings.TrimPrefix(text, "$")
-	text = strings.TrimPrefix(text, "0x")
-	v, err := strconv.ParseUint(text, 16, 16)
-	if err != nil {
-		return 0, err
-	}
-	return uint16(v), nil
 }

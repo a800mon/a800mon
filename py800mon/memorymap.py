@@ -1,4 +1,5 @@
 import re
+from .memory import parse_hex_u16
 
 # Generated from monitor.c builtin symbol tables.
 _SYMBOLS = {
@@ -834,6 +835,7 @@ _SYMBOLS = {
 }
 
 _HEX_ADDR_RE = re.compile(r"\$([0-9A-Fa-f]{1,4})")
+_HEX_INPUT_RE = re.compile(r"^[0-9A-Fa-f]{1,4}$")
 _SYMBOL_ITEMS = tuple(sorted(_SYMBOLS.items()))
 
 def lookup_symbol(addr: int) -> str | None:
@@ -846,18 +848,40 @@ def find_symbol_addr(query: str) -> int | None:
         q = q[1:].lstrip()
     if not q:
         return None
-    q = q.lower()
-
+    terms = q.lower().split()
+    if not terms:
+        return None
+    if len(terms) == 1:
+        term = terms[0]
+        for addr, name in _SYMBOL_ITEMS:
+            if name.lower() == term:
+                return addr
+        for addr, name in _SYMBOL_ITEMS:
+            if name.lower().startswith(term):
+                return addr
+        for addr, name in _SYMBOL_ITEMS:
+            if term in name.lower():
+                return addr
+        return None
     for addr, name in _SYMBOL_ITEMS:
-        if name.lower() == q:
-            return addr
-    for addr, name in _SYMBOL_ITEMS:
-        if name.lower().startswith(q):
-            return addr
-    for addr, name in _SYMBOL_ITEMS:
-        if q in name.lower():
+        lname = name.lower()
+        if all(term in lname for term in terms):
             return addr
     return None
+
+
+def find_symbol_or_addr(query: str) -> int | None:
+    addr = find_symbol_addr(query)
+    if addr is not None:
+        return addr
+    q = str(query).strip()
+    if q.startswith(";"):
+        q = q[1:].lstrip()
+    if not q:
+        return None
+    if _HEX_INPUT_RE.fullmatch(q) is None:
+        return None
+    return parse_hex_u16(q)
 
 def comment_for_asm(asm_text: str) -> str:
     parts = asm_text.split(None, 1)

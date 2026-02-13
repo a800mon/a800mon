@@ -47,7 +47,21 @@ const (
 	CmdBPDeleteClause  = irpc.CmdBPDeleteClause
 	CmdBPSetEnabled    = irpc.CmdBPSetEnabled
 	CmdBPList          = irpc.CmdBPList
+	CmdBuildFeatures   = irpc.CmdBuildFeatures
 	CmdConfig          = irpc.CmdConfig
+	CmdGTIAState       = irpc.CmdGTIAState
+	CmdANTICState      = irpc.CmdANTICState
+	CmdCartState       = irpc.CmdCartState
+	CmdJumps           = irpc.CmdJumps
+	CmdPIAState        = irpc.CmdPIAState
+	CmdPOKEYState      = irpc.CmdPOKEYState
+	CmdStack           = irpc.CmdStack
+	CmdStepOver        = irpc.CmdStepOver
+	CmdRunUntilReturn  = irpc.CmdRunUntilReturn
+	CmdBBRK            = irpc.CmdBBRK
+	CmdBLine           = irpc.CmdBLine
+	CmdSearch          = irpc.CmdSearch
+	CmdSetReg          = irpc.CmdSetReg
 )
 
 func NewRpcClient(transport *SocketTransport) *RpcClient {
@@ -106,8 +120,40 @@ func (r *RpcClient) History(ctx context.Context) ([]CpuHistoryEntry, error) {
 	return r.inner.History(ctx)
 }
 
+func (r *RpcClient) GTIAState(ctx context.Context) (GTIAState, error) {
+	return r.inner.GTIAState(ctx)
+}
+
+func (r *RpcClient) ANTICState(ctx context.Context) (ANTICState, error) {
+	return r.inner.ANTICState(ctx)
+}
+
+func (r *RpcClient) CartrigeState(ctx context.Context) (CartState, error) {
+	return r.inner.CartrigeState(ctx)
+}
+
+func (r *RpcClient) Jumps(ctx context.Context) (JumpsState, error) {
+	return r.inner.Jumps(ctx)
+}
+
+func (r *RpcClient) PIAState(ctx context.Context) (PIAState, error) {
+	return r.inner.PIAState(ctx)
+}
+
+func (r *RpcClient) POKEYState(ctx context.Context) (POKEYState, error) {
+	return r.inner.POKEYState(ctx)
+}
+
+func (r *RpcClient) Stack(ctx context.Context) (StackState, error) {
+	return r.inner.Stack(ctx)
+}
+
+func (r *RpcClient) BuildFeatures(ctx context.Context) ([]uint16, error) {
+	return r.inner.BuildFeatures(ctx)
+}
+
 func (r *RpcClient) Config(ctx context.Context) ([]uint16, error) {
-	return r.inner.Config(ctx)
+	return r.BuildFeatures(ctx)
 }
 
 func (r *RpcClient) BPClear(ctx context.Context) error {

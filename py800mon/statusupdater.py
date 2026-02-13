@@ -1,7 +1,9 @@
 import asyncio
 import time
 
+from .app import EventType
 from .appstate import state
+from .actions import Actions
 from .datastructures import CpuState
 from .disasm import disasm_6502_one
 from .emulator import CAP_MONITOR_BREAKPOINTS
@@ -34,7 +36,7 @@ class StatusUpdater:
         while True:
             await self._poll_once(force_cpu_refresh)
             force_cpu_refresh = False
-            await event_queue.put(("status", None))
+            await event_queue.put((EventType.STATUS, None))
             interval = (
                 self._error_interval
                 if state.last_rpc_error
@@ -63,7 +65,7 @@ class StatusUpdater:
             or state.state_seq != status.state_seq
         )
         if changed:
-            self._dispatcher.update_status(status)
+            self._dispatcher.dispatch(Actions.SET_STATUS, status)
         if changed or force_cpu_refresh:
             await self._update_cpu()
         now = time.monotonic()
@@ -87,13 +89,13 @@ class StatusUpdater:
             cpu_disasm = disasm_6502_one(pc, code)
         except (RpcException, RuntimeError):
             pass
-        self._dispatcher.update_cpu(cpu, cpu_disasm)
+        self._dispatcher.dispatch(Actions.SET_CPU, (cpu, cpu_disasm))
 
     def _sync_rpc_error(self):
         error = self._rpc.last_error
         text = None if error is None else str(error)
         if state.last_rpc_error != text:
-            self._dispatcher.update_last_rpc_error(text)
+            self._dispatcher.dispatch(Actions.SET_LAST_RPC_ERROR, text)
 
     async def _update_capabilities(self):
         try:
@@ -103,4 +105,7 @@ class StatusUpdater:
         self._caps_synced = True
         supported = CAP_MONITOR_BREAKPOINTS in set(caps)
         if state.breakpoints_supported != supported:
-            self._dispatcher.update_breakpoints_supported(supported)
+            self._dispatcher.dispatch(
+                Actions.SET_BREAKPOINTS_SUPPORTED,
+                supported,
+            )

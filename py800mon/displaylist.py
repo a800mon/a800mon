@@ -1,10 +1,9 @@
-import curses
-
 from .app import VisualRpcComponent
-from .appstate import state, store
+from .actions import Actions
+from .appstate import state
 from .datastructures import DisplayList, DisplayListEntry
 from .rpc import RpcException
-from .ui import Color
+from .ui import Color, GridWidget
 
 DMACTL_ADDR = 0x022F
 DMACTL_HW_ADDR = 0xD400
@@ -191,8 +190,11 @@ class DisplayListMemoryMapper:
 
 
 class DisplayListViewer(VisualRpcComponent):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(self, rpc, window):
+        super().__init__(rpc, window)
+        self.grid = GridWidget(window)
+        self.grid.add_column("address", width=5, attr=Color.ADDRESS.attr())
+        self.grid.add_column("description", width=0, attr=Color.TEXT.attr())
         self._dmactl = 0
 
     async def update(self):
@@ -206,49 +208,25 @@ class DisplayListViewer(VisualRpcComponent):
             return False
         else:
             dlist = decode_displaylist(start_addr, dump)
-            store.set_dlist(dlist, dmactl)
+            self.app.dispatch_action(Actions.SET_DLIST, (dlist, dmactl))
             self._dmactl = dmactl
-            if state.displaylist_inspect:
-                segs = dlist.screen_segments(dmactl)
-                if not segs:
-                    store.set_dlist_selected_region(None)
-                elif state.dlist_selected_region is None:
-                    store.set_dlist_selected_region(0)
-                elif state.dlist_selected_region >= len(segs):
-                    store.set_dlist_selected_region(len(segs) - 1)
             return True
 
     def render(self, force_redraw=False):
-        if state.displaylist_inspect:
-            segs = state.dlist.screen_segments(self._dmactl)
-            if not segs:
-                self.window.clear_to_bottom()
-                return
-            for idx, (start, end, mode) in enumerate(segs):
-                length = end - start
-                last = (end - 1) & 0xFFFF
-                attr = curses.A_REVERSE if idx == state.dlist_selected_region else 0
-                self.window.print_line(
-                    f"{start:04X}-{last:04X} len={length:04X} antic={mode}",
-                    attr=attr,
-                )
-                if idx == state.dlist_selected_region:
-                    self.window.clear_to_eol(inverse=True)
-                else:
-                    self.window.clear_to_eol()
-            self.window.clear_to_bottom()
-            return
-        entries = (
-            (
-                (f"{entry.addr:04X}:", f" {count}x {entry.description}")
-                if count > 1
-                else (f"{entry.addr:04X}:", f" {entry.description}")
-            )
-            for count, entry in state.dlist.compacted_entries()
-        )
-        for addr, desc in entries:
-            self.window.print(addr, attr=Color.ADDRESS.attr())
-            self.window.print(desc)
-            self.window.clear_to_eol()
-            self.window.newline()
-        self.window.clear_to_bottom()
+        self._render_grid()
+
+    def _render_grid(self):
+        rows = []
+        for count, entry in state.dlist.compacted_entries():
+            if count > 1:
+                desc = f"{count}x {entry.description}"
+            else:
+                desc = entry.description
+            rows.append((f"{entry.addr:04X}:", desc))
+        self.grid.set_data(rows)
+        if rows and self.grid.selected_row is None:
+            self.grid.set_selected_row(0)
+        self.grid.render()
+
+    def handle_input(self, ch):
+        return self.grid.handle_input(ch)

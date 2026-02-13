@@ -6,14 +6,20 @@ import (
 	"strings"
 
 	"go800mon/internal/disasm"
+	"go800mon/internal/memory"
 )
 
 type DisassemblyViewer struct {
-	BaseVisualComponent
+	BaseWindowComponent
 	rpc                *RpcClient
-	screen             *Screen
-	dispatcher         *ActionDispatcher
+	grid               *GridWidget
+	addressInput       *AddressInputWidget
 	follow             bool
+	inputMode          string
+	selectedAddr       uint16
+	hasSelectedAddr    bool
+	selectedRowHint    int
+	hasSelectedRowHint bool
 	inputSnapshot      string
 	replaceOnNextInput bool
 	currentAddr        uint16
@@ -21,6 +27,14 @@ type DisassemblyViewer struct {
 	lastSnapshot       string
 	pendingNav         navAction
 	pendingSteps       int
+	pendingWriteAddr   uint16
+	pendingWriteData   []byte
+	hasPendingWrite    bool
+	editAddr           uint16
+	hasEditAddr        bool
+	editSnapshot       string
+	editText           string
+	editBytes          []byte
 }
 
 type navAction int
@@ -33,29 +47,45 @@ const (
 	navUp
 )
 
+const (
+	inputModeAddr = "addr"
+	inputModeEdit = "edit"
+)
+
 func NewDisassemblyViewer(rpc *RpcClient, window *Window) *DisassemblyViewer {
-	return &DisassemblyViewer{
-		BaseVisualComponent: NewBaseVisualComponent(window),
+	grid := NewGridWidget(window)
+	grid.SetColumnGap(1)
+	grid.AddColumn("address", 5, ColorAddress.Attr(), nil)
+	grid.AddColumn("opcode1", 2, ColorText.Attr(), nil)
+	grid.AddColumn("opcode2", 2, ColorText.Attr(), nil)
+	grid.AddColumn("opcode3", 2, ColorText.Attr(), nil)
+	grid.AddColumn("mnemonic", 4, ColorMnemonic.Attr(), nil)
+	grid.AddColumn("argument", 14, ColorText.Attr(), disassemblyArgumentAttr)
+	grid.AddColumn("comment", 0, ColorComment.Attr(), nil)
+	grid.SetEditableColumnsRange(4, 6)
+	v := &DisassemblyViewer{
+		BaseWindowComponent: NewBaseWindowComponent(window),
 		rpc:                 rpc,
+		grid:                grid,
 		follow:              true,
 	}
-}
-
-func (d *DisassemblyViewer) BindInput(screen *Screen, dispatcher *ActionDispatcher) {
-	d.screen = screen
-	d.dispatcher = dispatcher
+	grid.SetOnCellInputChange(v.onGridEditChange)
+	v.addressInput = NewAddressInputWidget(window)
+	v.addressInput.SetColor(ColorAddress)
+	return v
 }
 
 func (d *DisassemblyViewer) EnableFollow() {
-	d.follow = true
-	d.Window().SetTagActive("follow", true)
+	d.setFollow(true)
 }
 
 func (d *DisassemblyViewer) Update(ctx context.Context) (bool, error) {
 	st := State()
 	if !st.DisassemblyEnabled {
 		if len(st.DisassemblyRows) > 0 {
-			store.setDisassemblyRows(nil)
+			if app := d.App(); app != nil {
+				app.DispatchAction(ActionSetDisassemblyRows, []DisasmRow(nil))
+			}
 			return true, nil
 		}
 		return false, nil
@@ -63,6 +93,7 @@ func (d *DisassemblyViewer) Update(ctx context.Context) (bool, error) {
 	if d.Window().Height() <= 0 {
 		return false, nil
 	}
+	_ = d.applyPendingWrite(ctx)
 
 	if !d.hasCurrentAddr {
 		if st.DisassemblyAddr != nil {
@@ -71,6 +102,10 @@ func (d *DisassemblyViewer) Update(ctx context.Context) (bool, error) {
 			d.currentAddr = st.CPU.PC
 		}
 		d.hasCurrentAddr = true
+		d.selectedAddr = d.currentAddr
+		d.hasSelectedAddr = true
+		d.selectedRowHint = 0
+		d.hasSelectedRowHint = true
 	} else if !d.follow && st.DisassemblyAddr != nil && *st.DisassemblyAddr != d.currentAddr {
 		d.currentAddr = *st.DisassemblyAddr
 	}
@@ -84,19 +119,37 @@ func (d *DisassemblyViewer) Update(ctx context.Context) (bool, error) {
 	}
 	if d.follow {
 		pc := st.CPU.PC
-		if pc < d.currentAddr || !containsAddr(decoded, pc) {
+		ih := d.Window().Height()
+		if ih < 1 {
+			ih = 1
+		}
+		rowIdx := findAddrIndex(decoded, pc)
+		if pc < d.currentAddr || rowIdx < 0 {
 			d.currentAddr = pc
 			decoded, err = d.fetchRows(ctx, d.currentAddr)
 			if err != nil {
 				return false, nil
 			}
+		} else if rowIdx >= ih {
+			startIdx := rowIdx - (ih - 1)
+			if startIdx < 0 {
+				startIdx = 0
+			}
+			d.currentAddr = decoded[startIdx].Addr
+			decoded, err = d.fetchRows(ctx, d.currentAddr)
+			if err != nil {
+				return false, nil
+			}
 		}
+		d.hasSelectedAddr = false
+		d.hasSelectedRowHint = false
 	}
 
 	rows := make([]DisasmRow, 0, len(decoded))
 	for _, ins := range decoded {
 		row := DisasmRow{
 			Addr:     ins.Addr,
+			Size:     ins.Size,
 			RawText:  ins.RawText,
 			AsmText:  ins.AsmText,
 			Mnemonic: ins.Mnemonic,
@@ -113,9 +166,11 @@ func (d *DisassemblyViewer) Update(ctx context.Context) (bool, error) {
 		}
 		rows = append(rows, row)
 	}
-	store.setDisassemblyRows(rows)
-	addr := d.currentAddr
-	store.setDisassemblyAddr(&addr)
+	if app := d.App(); app != nil {
+		app.DispatchAction(ActionSetDisassemblyRows, rows)
+		addr := d.currentAddr
+		app.DispatchAction(ActionSetDisassemblyAddr, addr)
+	}
 
 	snapshot := buildDisasmSnapshot(st.CPU.PC, d.currentAddr, rows)
 	if d.lastSnapshot == snapshot {
@@ -140,9 +195,6 @@ func (d *DisassemblyViewer) fetchRows(ctx context.Context, addr uint16) ([]disas
 		}
 		rows = append(rows, ins)
 		prev = ins.Addr
-		if len(rows) >= d.Window().Height() {
-			break
-		}
 	}
 	return rows, nil
 }
@@ -151,48 +203,127 @@ func (d *DisassemblyViewer) Render(_force bool) {
 	st := State()
 	w := d.Window()
 	w.SetTagActive("follow", d.follow)
-	w.Cursor(0, 0)
-	rowCount := 0
+	gridRows := make([][]string, 0, len(st.DisassemblyRows))
+	activeRow := -1
 	for i, row := range st.DisassemblyRows {
-		rev := 0
-		if row.Addr == st.CPU.PC && !(st.InputFocus && i == 0) {
-			rev = AttrReverse()
+		if activeRow < 0 && row.Addr == st.CPU.PC && !(d.inputMode == inputModeAddr && i == 0) {
+			activeRow = i
 		}
-		w.Print(formatHex16(row.Addr)+":", ColorAddress.Attr()|rev, false)
-		w.Print(" ", rev, false)
-		w.Print(padRight(row.RawText, 8)+" ", rev, false)
-		printAsmRow(w, row, rev)
-		w.FillToEOL(' ', rev)
-		w.Newline()
-		rowCount++
+		op1, op2, op3 := opcodeColumns(row.RawText)
+		gridRows = append(gridRows, []string{
+			formatHex16(row.Addr) + ":",
+			op1,
+			op2,
+			op3,
+			row.Mnemonic,
+			row.Operand,
+			row.Comment,
+		})
 	}
-	if rowCount < w.Height() {
-		w.Cursor(0, rowCount)
-		w.ClearToBottom()
-	}
-	if st.InputFocus {
-		text := strings.ToUpper(st.InputBuffer)
-		if len(text) > 4 {
-			text = text[len(text)-4:]
+	d.grid.SetData(gridRows)
+	visCount := min(len(st.DisassemblyRows), w.Height())
+	selectedRow := -1
+	if d.hasSelectedAddr {
+		for i, row := range st.DisassemblyRows {
+			if row.Addr == d.selectedAddr {
+				selectedRow = i
+				break
+			}
 		}
-		text = padLeft(text, 4, '0')
-		w.Cursor(0, 0)
-		w.Print(text+"  ", ColorAddress.Attr()|AttrReverse(), false)
 	}
+	if selectedRow < 0 && d.hasSelectedRowHint && visCount > 0 {
+		selectedRow = d.selectedRowHint
+		if selectedRow < 0 {
+			selectedRow = 0
+		}
+		if selectedRow >= visCount {
+			selectedRow = visCount - 1
+		}
+	}
+	if selectedRow < 0 {
+		if d.follow && activeRow >= 0 {
+			selectedRow = activeRow
+		} else if visCount > 0 {
+			selectedRow = 0
+		}
+	}
+	if selectedRow >= 0 && visCount > 0 {
+		if selectedRow < 0 {
+			selectedRow = 0
+		}
+		if selectedRow >= visCount {
+			selectedRow = visCount - 1
+		}
+		d.selectedRowHint = selectedRow
+		d.hasSelectedRowHint = true
+		d.selectedAddr = st.DisassemblyRows[selectedRow].Addr
+		d.hasSelectedAddr = true
+	}
+	if selectedRow >= 0 && visCount > 0 {
+		idx := selectedRow
+		d.grid.SetSelectedRow(&idx)
+	} else {
+		d.hasSelectedAddr = false
+		d.hasSelectedRowHint = false
+		d.grid.SetSelectedRow(nil)
+	}
+	if activeRow >= 0 {
+		idx := activeRow
+		d.grid.SetHighlightedRow(&idx)
+	} else {
+		d.grid.SetHighlightedRow(nil)
+	}
+	if len(st.DisassemblyRows) > 0 {
+		start := int(st.DisassemblyRows[0].Addr)
+		anchor := start
+		if activeRow >= 0 && activeRow < len(st.DisassemblyRows) {
+			anchor = int(st.DisassemblyRows[activeRow].Addr)
+		}
+		viewCount := min(len(st.DisassemblyRows), w.Height())
+		end := start + 1
+		for i := 0; i < viewCount; i++ {
+			size := st.DisassemblyRows[i].Size
+			if size < 1 {
+				size = 1
+			}
+			cand := int(st.DisassemblyRows[i].Addr) + size
+			if cand > end {
+				end = cand
+			}
+		}
+		if end > 0x10000 {
+			end = 0x10000
+		}
+		page := end - start
+		if page < 1 {
+			page = 1
+		}
+		d.grid.SetVirtualScroll(0x10000, anchor, page)
+	} else {
+		d.grid.SetVirtualScroll(0x10000, int(d.currentAddr), 1)
+	}
+	d.grid.SetOffset(0)
+	if d.inputMode == inputModeEdit {
+		if row, ok := d.findRowByAddr(d.editAddr); ok {
+			d.grid.BeginEdit(row, d.editText)
+		}
+	}
+	d.grid.Render()
+	if d.inputMode != inputModeAddr {
+		return
+	}
+	text := strings.ToUpper(d.addressInput.Buffer())
+	if len(text) > 4 {
+		text = text[len(text)-4:]
+	}
+	text = padLeft(text, 4, '0')
+	w.Cursor(0, 0)
+	w.Print(text+"  ", ColorAddress.Attr()|AttrReverse(), false)
 }
 
 func (d *DisassemblyViewer) HandleInput(ch int) bool {
 	st := State()
-	if st.InputFocus {
-		if st.InputTarget != "disassembly" {
-			return false
-		}
-		return d.handleAddressInput(ch)
-	}
 	if !d.Window().Visible() {
-		return false
-	}
-	if d.screen == nil || d.screen.Focused() != d.Window() {
 		return false
 	}
 
@@ -200,44 +331,64 @@ func (d *DisassemblyViewer) HandleInput(ch int) bool {
 	if ch >= int('A') && ch <= int('Z') {
 		lower = ch + 32
 	}
-	if lower == int('f') {
-		d.follow = !d.follow
-		d.Window().SetTagActive("follow", d.follow)
+	if ch == int(' ') || lower == int('f') {
+		d.setFollow(!d.follow)
 		return true
 	}
 	if ch == KeyHome() {
-		d.follow = false
+		d.setFollow(false)
+		d.selectedRowHint = 0
+		d.hasSelectedRowHint = true
+		d.hasSelectedAddr = false
 		d.queueNav(navHome, 0)
 		return true
 	}
-	if ch == KeyDown() || ch == KeyPageDown() {
-		d.follow = false
-		steps := 1
-		if ch == KeyPageDown() {
-			steps = d.Window().Height() - 1
-			if steps < 1 {
-				steps = 1
-			}
+	if ch == KeyDown() {
+		d.setFollow(false)
+		if !d.moveSelectedRows(1) {
+			d.queueNav(navDown, 1)
 		}
-		d.queueNav(navDown, steps)
 		return true
 	}
-	if ch == KeyUp() || ch == KeyPageUp() {
-		d.follow = false
-		steps := 1
-		if ch == KeyPageUp() {
-			steps = d.Window().Height() - 1
-			if steps < 1 {
-				steps = 1
-			}
+	if ch == KeyPageDown() {
+		d.setFollow(false)
+		steps := d.Window().Height() - 1
+		if steps < 1 {
+			steps = 1
 		}
-		d.queueNav(navUp, steps)
+		if !d.moveSelectedRows(steps) {
+			d.queueNav(navDown, steps)
+		}
+		return true
+	}
+	if ch == KeyUp() {
+		d.setFollow(false)
+		if !d.moveSelectedRows(-1) {
+			d.queueNav(navUp, 1)
+		}
+		return true
+	}
+	if ch == KeyPageUp() {
+		d.setFollow(false)
+		steps := d.Window().Height() - 1
+		if steps < 1 {
+			steps = 1
+		}
+		if !d.moveSelectedRows(-steps) {
+			d.queueNav(navUp, steps)
+		}
 		return true
 	}
 	if ch == KeyEnd() {
-		d.follow = false
+		d.setFollow(false)
+		d.selectedRowHint = max(0, d.Window().Height()-1)
+		d.hasSelectedRowHint = true
+		d.hasSelectedAddr = false
 		d.queueNav(navEnd, 0)
 		return true
+	}
+	if ch == 10 || ch == 13 || ch == KeyEnter() {
+		return d.openEditInput()
 	}
 	if ch != int('/') {
 		return false
@@ -250,15 +401,35 @@ func (d *DisassemblyViewer) HandleInput(ch int) bool {
 	}
 	d.inputSnapshot = formatHex16(addr)
 	d.replaceOnNextInput = true
-	_ = d.dispatcher.Dispatch(ActionSetInputBuffer, d.inputSnapshot)
-	_ = d.dispatcher.Dispatch(ActionSetInputTarget, "disassembly")
-	_ = d.dispatcher.Dispatch(ActionSetInputFocus, true)
+	d.inputMode = inputModeAddr
+	d.addressInput.Activate(d.inputSnapshot)
+	if app := d.App(); app != nil {
+		app.DispatchAction(ActionSetInputFocus, d.handleAddressInput)
+	}
 	return true
 }
 
 func (d *DisassemblyViewer) queueNav(action navAction, steps int) {
 	d.pendingNav = action
 	d.pendingSteps = steps
+}
+
+func (d *DisassemblyViewer) applyPendingWrite(ctx context.Context) error {
+	if !d.hasPendingWrite {
+		return nil
+	}
+	addr := d.pendingWriteAddr
+	payload := append([]byte(nil), d.pendingWriteData...)
+	d.hasPendingWrite = false
+	d.pendingWriteData = nil
+	if len(payload) == 0 {
+		return nil
+	}
+	if err := d.rpc.WriteMemory(ctx, addr, payload); err != nil {
+		return err
+	}
+	d.lastSnapshot = ""
+	return nil
 }
 
 func (d *DisassemblyViewer) applyPendingNav(ctx context.Context) error {
@@ -306,7 +477,9 @@ func (d *DisassemblyViewer) applyPendingNav(ctx context.Context) error {
 		d.currentAddr = addr
 	}
 	d.hasCurrentAddr = true
-	_ = d.dispatcher.Dispatch(ActionSetDisassemblyAddr, d.currentAddr)
+	if app := d.App(); app != nil {
+		app.DispatchAction(ActionSetDisassemblyAddr, d.currentAddr)
+	}
 	return nil
 }
 
@@ -428,75 +601,273 @@ func linearAddrs(decoded []disasm.DecodedInstruction) []uint16 {
 }
 
 func (d *DisassemblyViewer) handleAddressInput(ch int) bool {
-	st := State()
 	if ch == 27 {
-		d.updateAddressInput(strings.ToUpper(d.inputSnapshot))
-		_ = d.dispatcher.Dispatch(ActionSetInputTarget, "")
-		_ = d.dispatcher.Dispatch(ActionSetInputFocus, false)
+		_ = d.addressInput.SetBuffer(strings.ToUpper(d.inputSnapshot))
+		d.updateAddressInput(d.addressInput.Buffer())
+		d.closeInput()
 		return true
 	}
 	if ch == 10 || ch == 13 || ch == KeyEnter() {
-		text := strings.ToUpper(st.InputBuffer)
+		text := strings.ToUpper(d.addressInput.Buffer())
 		if text != "" {
 			d.updateAddressInput(text)
 		}
-		_ = d.dispatcher.Dispatch(ActionSetInputTarget, "")
-		_ = d.dispatcher.Dispatch(ActionSetInputFocus, false)
+		d.closeInput()
 		return true
 	}
 	if ch == KeyBackspace() || ch == 127 || ch == 8 {
 		d.replaceOnNextInput = false
-		text := st.InputBuffer
-		if len(text) > 0 {
-			text = text[:len(text)-1]
+		if d.addressInput.Backspace() {
+			d.updateAddressInput(d.addressInput.Buffer())
 		}
-		d.updateAddressInput(strings.ToUpper(text))
 		return true
 	}
-	if ch < 0 || ch > 255 {
-		return true
-	}
-	char := strings.ToUpper(string(rune(ch)))
-	if !((char >= "0" && char <= "9") || (char >= "A" && char <= "F")) {
-		return true
-	}
-	text := st.InputBuffer
 	if d.replaceOnNextInput {
-		text = ""
+		if !d.addressInput.AcceptsChar(ch) {
+			return true
+		}
+		_ = d.addressInput.SetBuffer("")
 		d.replaceOnNextInput = false
 	}
-	if len(text) >= 4 {
+	if d.addressInput.AppendChar(ch) {
+		d.updateAddressInput(d.addressInput.Buffer())
 		return true
 	}
-	d.updateAddressInput(text + char)
+	return true
+}
+
+func (d *DisassemblyViewer) handleEditInput(ch int) bool {
+	if ch == 27 {
+		d.updateEditBuffer(d.editSnapshot)
+		d.closeInput()
+		return true
+	}
+	if ch == 10 || ch == 13 || ch == KeyEnter() {
+		if d.hasEditAddr && len(d.editBytes) > 0 {
+			d.pendingWriteAddr = d.editAddr
+			d.pendingWriteData = append([]byte(nil), d.editBytes...)
+			d.hasPendingWrite = true
+			d.selectedAddr = d.editAddr
+			d.hasSelectedAddr = true
+			d.hasSelectedRowHint = false
+		}
+		d.closeInput()
+		return true
+	}
+	d.grid.HandleInput(ch)
 	return true
 }
 
 func (d *DisassemblyViewer) updateAddressInput(text string) {
-	_ = d.dispatcher.Dispatch(ActionSetInputBuffer, text)
 	if text == "" {
 		return
 	}
-	v, err := strconv.ParseUint(text, 16, 16)
+	v, err := memory.ParseHex(text)
 	if err != nil {
 		return
 	}
-	d.follow = false
-	d.currentAddr = uint16(v)
+	d.setFollow(false)
+	d.currentAddr = v
 	d.hasCurrentAddr = true
+	d.selectedAddr = d.currentAddr
+	d.hasSelectedAddr = true
+	d.selectedRowHint = 0
+	d.hasSelectedRowHint = true
 	d.pendingNav = navNone
 	d.pendingSteps = 0
 	d.lastSnapshot = ""
-	_ = d.dispatcher.Dispatch(ActionSetDisassemblyAddr, d.currentAddr)
+	if app := d.App(); app != nil {
+		app.DispatchAction(ActionSetDisassemblyAddr, d.currentAddr)
+	}
 }
 
-func containsAddr(rows []disasm.DecodedInstruction, addr uint16) bool {
-	for _, r := range rows {
-		if r.Addr == addr {
-			return true
+func (d *DisassemblyViewer) updateEditBuffer(text string) {
+	d.editText = text
+	d.editBytes = d.assembleEditBuffer(text)
+}
+
+func (d *DisassemblyViewer) onGridEditChange(_x int, y int, value string) {
+	if d.inputMode != inputModeEdit {
+		return
+	}
+	row, ok := d.findRowByAddr(d.editAddr)
+	if !ok {
+		var rowOK bool
+		row, rowOK = d.currentSelectedRow()
+		if !rowOK {
+			return
 		}
 	}
+	if y != row {
+		return
+	}
+	d.updateEditBuffer(value)
+}
+
+func (d *DisassemblyViewer) assembleEditBuffer(text string) []byte {
+	if !d.hasEditAddr {
+		return nil
+	}
+	stmt := strings.TrimSpace(text)
+	if stmt == "" {
+		return nil
+	}
+	encoded, err := disasm.AssembleOne(d.editAddr, strings.ToUpper(stmt))
+	if err != nil || len(encoded) == 0 {
+		return nil
+	}
+	return encoded
+}
+
+func (d *DisassemblyViewer) openEditInput() bool {
+	st := State()
+	row, ok := d.currentSelectedRow()
+	if !ok || row < 0 || row >= len(st.DisassemblyRows) {
+		return false
+	}
+	ins := st.DisassemblyRows[row]
+	text := ins.Mnemonic
+	if ins.Operand != "" {
+		text += " " + ins.Operand
+	}
+	d.setFollow(false)
+	d.selectedRowHint = row
+	d.hasSelectedRowHint = true
+	d.selectedAddr = ins.Addr
+	d.hasSelectedAddr = true
+	d.editAddr = ins.Addr
+	d.hasEditAddr = true
+	d.editSnapshot = text
+	d.editText = text
+	d.inputMode = inputModeEdit
+	d.replaceOnNextInput = false
+	d.updateEditBuffer(text)
+	d.grid.BeginEdit(row, text)
+	if app := d.App(); app != nil {
+		app.DispatchAction(ActionSetInputFocus, d.handleEditInput)
+	}
+	return true
+}
+
+func (d *DisassemblyViewer) closeInput() {
+	d.replaceOnNextInput = false
+	d.inputMode = ""
+	d.hasEditAddr = false
+	d.editAddr = 0
+	d.editSnapshot = ""
+	d.editText = ""
+	d.editBytes = nil
+	d.grid.EndEdit()
+	d.addressInput.Deactivate()
+	if app := d.App(); app != nil {
+		app.DispatchAction(ActionSetInputFocus, nil)
+	}
+}
+
+func (d *DisassemblyViewer) findRowByAddr(addr uint16) (int, bool) {
+	rows := State().DisassemblyRows
+	for i, row := range rows {
+		if row.Addr == addr {
+			return i, true
+		}
+	}
+	return 0, false
+}
+
+func (d *DisassemblyViewer) setFollow(enabled bool) {
+	d.follow = enabled
+	d.Window().SetTagActive("follow", enabled)
+}
+
+func (d *DisassemblyViewer) currentSelectedRow() (int, bool) {
+	rows := State().DisassemblyRows
+	visCount := min(len(rows), d.Window().Height())
+	if visCount <= 0 {
+		return 0, false
+	}
+	if d.hasSelectedAddr {
+		for i, row := range rows {
+			if row.Addr == d.selectedAddr {
+				if i >= visCount {
+					return visCount - 1, true
+				}
+				return i, true
+			}
+		}
+	}
+	if d.hasSelectedRowHint {
+		idx := d.selectedRowHint
+		if idx < 0 {
+			idx = 0
+		}
+		if idx >= visCount {
+			idx = visCount - 1
+		}
+		return idx, true
+	}
+	if sel, ok := d.grid.SelectedRow(); ok {
+		if sel < 0 {
+			sel = 0
+		}
+		if sel >= visCount {
+			sel = visCount - 1
+		}
+		return sel, true
+	}
+	return 0, true
+}
+
+func (d *DisassemblyViewer) moveSelectedRows(delta int) bool {
+	rows := State().DisassemblyRows
+	visCount := min(len(rows), d.Window().Height())
+	if visCount <= 0 {
+		d.hasSelectedAddr = false
+		d.hasSelectedRowHint = false
+		return false
+	}
+	cur, ok := d.currentSelectedRow()
+	if !ok {
+		return false
+	}
+	next := cur + delta
+	if next < 0 {
+		next = 0
+	}
+	if next >= visCount {
+		next = visCount - 1
+	}
+	if next != cur {
+		d.selectedRowHint = next
+		d.hasSelectedRowHint = true
+		d.selectedAddr = rows[next].Addr
+		d.hasSelectedAddr = true
+		idx := next
+		d.grid.SetSelectedRow(&idx)
+		return true
+	}
+	d.selectedRowHint = cur
+	d.hasSelectedRowHint = true
+	d.hasSelectedAddr = false
 	return false
+}
+
+func findAddrIndex(rows []disasm.DecodedInstruction, addr uint16) int {
+	for i, r := range rows {
+		if r.Addr == addr {
+			return i
+		}
+	}
+	return -1
+}
+
+func disassemblyArgumentAttr(_value string, row []string) int {
+	if len(row) <= 4 {
+		return ColorText.Attr()
+	}
+	if _, ok := historyFlowMnemonics[strings.ToUpper(strings.TrimSpace(row[4]))]; ok {
+		return ColorAddress.Attr()
+	}
+	return ColorText.Attr()
 }
 
 func buildDisasmSnapshot(pc uint16, addr uint16, rows []DisasmRow) string {
@@ -541,4 +912,12 @@ func padLeft(text string, n int, fill rune) string {
 		r = r[len(r)-n:]
 	}
 	return string(r)
+}
+
+func trimLastRune(text string) string {
+	r := []rune(text)
+	if len(r) == 0 {
+		return ""
+	}
+	return string(r[:len(r)-1])
 }

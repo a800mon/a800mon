@@ -2,25 +2,34 @@ import curses
 
 from .app import VisualRpcComponent
 from .appstate import state
-from .disasm import DecodedInstruction, disasm_6502_one_decoded
+from .disasm import FLOW_MNEMONICS, DecodedInstruction, disasm_6502_one_decoded
 from .rpc import RpcException
-from .ui import Color
-
-ASM_COMMENT_COL = 18
-
+from .ui import Color, GridWidget
 
 class HistoryViewer(VisualRpcComponent):
-    def __init__(self, *args, **kwargs):
-        self._reverse_order = bool(kwargs.pop("reverse_order", False))
-        super().__init__(*args, **kwargs)
+    def __init__(self, rpc, window, reverse_order=False):
+        super().__init__(rpc, window)
+        self.grid = GridWidget(window, col_gap=1)
+        self.grid.add_column("address", width=5, attr=Color.ADDRESS.attr())
+        self.grid.add_column("opcode1", width=2, attr=Color.TEXT.attr())
+        self.grid.add_column("opcode2", width=2, attr=Color.TEXT.attr())
+        self.grid.add_column("opcode3", width=2, attr=Color.TEXT.attr())
+        self.grid.add_column("mnemonic", width=4, attr=Color.MNEMONIC.attr())
+        self.grid.add_column(
+            "argument",
+            width=14,
+            attr=Color.TEXT.attr(),
+            attr_callback=self._argument_attr,
+        )
+        self.grid.add_column("comment", width=0, attr=Color.COMMENT.attr())
+        self._reverse_order = bool(reverse_order)
         self._entries = []
         self._can_disasm = True
         self._next_pc = None
         self._next_opbytes = b""
         self._last_snapshot = None
-        self._render_cache = []
-        self._rendered_rows = 0
         self._decoded_cache = {}
+        self._follow_live = True
 
     async def update(self):
         try:
@@ -39,53 +48,90 @@ class HistoryViewer(VisualRpcComponent):
             return False
 
     def render(self, force_redraw=False):
-        ih = self.window._ih
-        if ih <= 0:
-            return
-        if len(self._render_cache) != ih:
-            self._render_cache = [None] * ih
-            force_redraw = True
+        self._render_grid()
 
+    def _render_grid(self):
         next_pc = state.cpu.pc & 0xFFFF
         next_bytes = self._next_opbytes if self._next_pc == next_pc else b""
         next_ins = self._format_disasm_cached(next_pc, next_bytes)
 
-        render_rows = []
+        rows = []
+        selected = None
         if self._reverse_order:
-            rows = list(reversed(self._entries[: max(0, ih - 1)]))
-            for entry in rows:
-                render_rows.append(
-                    (entry.pc, self._format_disasm_cached(entry.pc, entry.opbytes), 0)
-                )
-            render_rows.append((next_pc, next_ins, curses.A_REVERSE))
-        else:
-            render_rows.append((next_pc, next_ins, curses.A_REVERSE))
-            if ih > 1:
-                rows = self._entries[: ih - 1]
-                for entry in rows:
-                    render_rows.append(
-                        (entry.pc, self._format_disasm_cached(entry.pc, entry.opbytes), 0)
+            for entry in reversed(self._entries):
+                ins = self._format_disasm_cached(entry.pc, entry.opbytes)
+                op1, op2, op3 = self._opcode_cells(ins.raw)
+                rows.append(
+                    (
+                        f"{entry.pc:04X}:",
+                        op1,
+                        op2,
+                        op3,
+                        ins.mnemonic,
+                        ins.operand,
+                        ins.comment,
                     )
+                )
+            selected = len(rows)
+            op1, op2, op3 = self._opcode_cells(next_ins.raw)
+            rows.append(
+                (
+                    f"{next_pc:04X}:",
+                    op1,
+                    op2,
+                    op3,
+                    next_ins.mnemonic,
+                    next_ins.operand,
+                    next_ins.comment,
+                )
+            )
+        else:
+            selected = 0
+            op1, op2, op3 = self._opcode_cells(next_ins.raw)
+            rows.append(
+                (
+                    f"{next_pc:04X}:",
+                    op1,
+                    op2,
+                    op3,
+                    next_ins.mnemonic,
+                    next_ins.operand,
+                    next_ins.comment,
+                )
+            )
+            for entry in self._entries:
+                ins = self._format_disasm_cached(entry.pc, entry.opbytes)
+                op1, op2, op3 = self._opcode_cells(ins.raw)
+                rows.append(
+                    (
+                        f"{entry.pc:04X}:",
+                        op1,
+                        op2,
+                        op3,
+                        ins.mnemonic,
+                        ins.operand,
+                        ins.comment,
+                    )
+                )
 
-        for row_idx, (pc, ins, rev_attr) in enumerate(render_rows):
-            row_sig = (pc, ins, rev_attr)
-            if not force_redraw and self._render_cache[row_idx] == row_sig:
-                continue
-            self.window.cursor = (0, row_idx)
-            self._print_row(pc, ins, rev_attr)
-            if rev_attr:
-                self.window.fill_to_eol(attr=rev_attr)
-            else:
-                self.window.clear_to_eol()
-            self._render_cache[row_idx] = row_sig
+        self.grid.set_data(rows)
+        if not rows:
+            self.grid.set_selected_row(None)
+        elif self._follow_live:
+            self.grid.set_selected_row(selected)
+        elif self.grid.selected_row is None:
+            self.grid.set_selected_row(selected)
+        self.grid.render()
 
-        next_row = len(render_rows)
-        if next_row < ih and (force_redraw or self._rendered_rows != next_row):
-            self.window.cursor = (0, next_row)
-            self.window.clear_to_bottom()
-        for idx in range(next_row, ih):
-            self._render_cache[idx] = None
-        self._rendered_rows = next_row
+    def handle_input(self, ch):
+        consumed = self.grid.handle_input(ch)
+        if not consumed:
+            return False
+        if self._reverse_order:
+            self._follow_live = ch in (curses.KEY_END, 360)
+        else:
+            self._follow_live = ch in (curses.KEY_HOME, 262)
+        return True
 
     def _format_disasm(self, pc: int, opbytes: bytes) -> DecodedInstruction:
         if self._can_disasm:
@@ -120,39 +166,18 @@ class HistoryViewer(VisualRpcComponent):
             self._decoded_cache.clear()
         return ins
 
-    def _print_asm(self, ins: DecodedInstruction, rev_attr: int = 0):
-        if not ins.mnemonic:
-            return
-        core_len = len(ins.mnemonic)
-        self.window.print(ins.mnemonic, attr=Color.MNEMONIC.attr() | rev_attr)
-        if not ins.operand:
-            pass
-        else:
-            self.window.print(" ", attr=rev_attr)
-            core_len += 1 + len(ins.operand)
-            if ins.flow_target is None or ins.operand_addr_span is None:
-                self.window.print(ins.operand, attr=rev_attr)
-            else:
-                start, end = ins.operand_addr_span
-                self.window.print(ins.operand[:start], attr=rev_attr)
-                self.window.print(
-                    ins.operand[start:end], attr=Color.ADDRESS.attr() | rev_attr
-                )
-                self.window.print(ins.operand[end:], attr=rev_attr)
-        if not ins.comment:
-            return
-        if core_len < ASM_COMMENT_COL:
-            self.window.print(
-                " " * (ASM_COMMENT_COL - core_len), attr=rev_attr)
-        self.window.print(" ", attr=rev_attr)
-        self.window.print(ins.comment, attr=Color.COMMENT.attr() | rev_attr)
+    def _opcode_cells(self, raw: bytes):
+        data = bytes(raw)
+        return (
+            f"{data[0]:02X}" if len(data) >= 1 else "",
+            f"{data[1]:02X}" if len(data) >= 2 else "",
+            f"{data[2]:02X}" if len(data) >= 3 else "",
+        )
 
-    def _print_row(
-        self, pc: int, ins: DecodedInstruction, rev_attr: int, prefix: str = ""
-    ):
-        if prefix:
-            self.window.print(prefix, attr=rev_attr)
-        self.window.print(f"{pc:04X}:", attr=Color.ADDRESS.attr() | rev_attr)
-        self.window.print(" ", attr=rev_attr)
-        self.window.print(f"{ins.raw_text:<8} ", attr=rev_attr)
-        self._print_asm(ins, rev_attr)
+    def _argument_attr(self, _value, row):
+        if len(row) <= 4:
+            return Color.TEXT.attr()
+        mnemonic = str(row[4]).strip().upper()
+        if mnemonic in FLOW_MNEMONICS:
+            return Color.ADDRESS.attr()
+        return Color.TEXT.attr()

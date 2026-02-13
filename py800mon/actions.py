@@ -1,7 +1,6 @@
 import enum
-import curses
 
-from .app import Component, InputComponent, StopLoop
+from .app import Component, StopLoop
 from .appstate import AppMode, state, store
 from .rpc import Command, RpcException
 
@@ -9,6 +8,7 @@ from .rpc import Command, RpcException
 class Actions(enum.Enum):
     STEP = enum.auto()
     STEP_VBLANK = enum.auto()
+    STEP_OVER = enum.auto()
     PAUSE = enum.auto()
     CONTINUE = enum.auto()
     SYNC_MODE = enum.auto()
@@ -17,23 +17,37 @@ class Actions(enum.Enum):
     COLDSTART = enum.auto()
     WARMSTART = enum.auto()
     TERMINATE = enum.auto()
-    SET_DLIST_INSPECT = enum.auto()
+    TOGGLE_FREEZE = enum.auto()
     SET_ATASCII = enum.auto()
     SET_DISASSEMBLY = enum.auto()
     SET_DISASSEMBLY_ADDR = enum.auto()
+    SET_BREAKPOINTS_SUPPORTED = enum.auto()
+    SET_STATUS = enum.auto()
+    SET_LAST_RPC_ERROR = enum.auto()
+    SET_CPU = enum.auto()
+    SET_DLIST = enum.auto()
+    SET_DMACTL = enum.auto()
+    SET_FRAME_TIME_MS = enum.auto()
     SET_INPUT_FOCUS = enum.auto()
-    SET_INPUT_TARGET = enum.auto()
-    SET_INPUT_BUFFER = enum.auto()
-    DLIST_NEXT = enum.auto()
-    DLIST_PREV = enum.auto()
     QUIT = enum.auto()
 
 
 class ActionDispatcher(Component):
-    def __init__(self, rpc):
+    def __init__(self, rpc, set_input_focus=lambda _handler: None):
+        super().__init__()
         self._rpc = rpc
         self._rpc_queue = []
-        self._after_rpc = None
+        self._rpc_flushed = False
+        self._set_input_focus = set_input_focus
+
+    async def update(self):
+        if not self._rpc_queue:
+            return False
+        queue, self._rpc_queue = self._rpc_queue, []
+        for cmd in queue:
+            await self._call_rpc(cmd)
+        self._rpc_flushed = True
+        return True
 
     async def _call_rpc(self, cmd):
         try:
@@ -44,8 +58,13 @@ class ActionDispatcher(Component):
     def _enqueue_rpc(self, cmd):
         self._rpc_queue.append(cmd)
 
-    def set_after_rpc(self, callback):
-        self._after_rpc = callback
+    def set_input_focus_handler(self, callback):
+        self._set_input_focus = callback
+
+    def take_rpc_flushed(self):
+        flushed = self._rpc_flushed
+        self._rpc_flushed = False
+        return flushed
 
     def dispatch(self, action: Actions, value=None):
         if action == Actions.STEP:
@@ -53,6 +72,9 @@ class ActionDispatcher(Component):
             return
         if action == Actions.STEP_VBLANK:
             self._enqueue_rpc(Command.STEP_VBLANK)
+            return
+        if action == Actions.STEP_OVER:
+            self._enqueue_rpc(Command.STEP_OVER)
             return
         if action == Actions.PAUSE:
             self._enqueue_rpc(Command.PAUSE)
@@ -88,13 +110,8 @@ class ActionDispatcher(Component):
             self._enqueue_rpc(Command.STOP_EMULATOR)
             self.dispatch(Actions.EXIT_SHUTDOWN)
             return
-        if action == Actions.SET_DLIST_INSPECT:
-            new_val = bool(value)
-            store.set_displaylist_inspect(new_val)
-            if not new_val:
-                store.set_dlist_selected_region(None)
-            elif state.dlist_selected_region is None:
-                store.set_dlist_selected_region(0)
+        if action == Actions.TOGGLE_FREEZE:
+            store.set_ui_frozen(not state.ui_frozen)
             return
         if action == Actions.SET_ATASCII:
             store.set_use_atascii(bool(value))
@@ -105,105 +122,55 @@ class ActionDispatcher(Component):
         if action == Actions.SET_DISASSEMBLY_ADDR:
             store.set_disassembly_addr(int(value))
             return
+        if action == Actions.SET_BREAKPOINTS_SUPPORTED:
+            store.set_breakpoints_supported(bool(value))
+            return
+        if action == Actions.SET_STATUS:
+            status = value
+            store.set_status(
+                status.paused,
+                status.emu_ms,
+                status.reset_ms,
+                status.crashed,
+                status.state_seq,
+            )
+            return
+        if action == Actions.SET_LAST_RPC_ERROR:
+            store.set_last_rpc_error(value)
+            return
+        if action == Actions.SET_CPU:
+            cpu_state, cpu_disasm = value
+            store.set_cpu(cpu_state)
+            store.set_cpu_disasm(cpu_disasm)
+            return
+        if action == Actions.SET_DLIST:
+            dlist, dmactl = value
+            store.set_dlist(dlist, int(dmactl))
+            return
+        if action == Actions.SET_DMACTL:
+            store.set_dlist(state.dlist, int(value))
+            return
+        if action == Actions.SET_FRAME_TIME_MS:
+            store.set_frame_time_ms(int(value))
+            return
         if action == Actions.SET_INPUT_FOCUS:
-            store.set_input_focus(bool(value))
-            return
-        if action == Actions.SET_INPUT_TARGET:
-            store.set_input_target(value)
-            return
-        if action == Actions.SET_INPUT_BUFFER:
-            store.set_input_buffer(str(value))
-            return
-        if action == Actions.DLIST_NEXT:
-            if not state.displaylist_inspect:
-                return
-            store.set_dlist_selected_region((state.dlist_selected_region or 0) + 1)
-            return
-        if action == Actions.DLIST_PREV:
-            if not state.displaylist_inspect:
-                return
-            new_idx = (state.dlist_selected_region or 0) - 1
-            if new_idx < 0:
-                new_idx = 0
-            store.set_dlist_selected_region(new_idx)
+            self._set_input_focus(value)
             return
         if action == Actions.QUIT:
             raise StopLoop
 
-    async def post_render(self):
-        if not self._rpc_queue:
-            return False
-        queue, self._rpc_queue = self._rpc_queue, []
-        for cmd in queue:
-            await self._call_rpc(cmd)
-        if self._after_rpc is not None:
-            self._after_rpc()
-        return False
 
-    def update_status(self, status):
-        store.set_status(
-            status.paused, status.emu_ms, status.reset_ms, status.crashed, status.state_seq
-        )
-
-    def update_last_rpc_error(self, error: str | None):
-        store.set_last_rpc_error(error)
-
-    def update_cpu(self, cpu_state, cpu_disasm: str = ""):
-        store.set_cpu(cpu_state)
-        store.set_cpu_disasm(cpu_disasm)
-
-    def update_dlist(self, dlist):
-        store.set_dlist(dlist, state.dmactl)
-
-    def update_dmactl(self, dmactl: int):
-        store.set_dlist(state.dlist, dmactl)
-
-    def update_screen_buffer(self, screen_buffer):
-        store.set_screen_buffer(screen_buffer)
-
-    def update_frame_time_ms(self, ms):
-        store.set_frame_time_ms(ms)
-
-    def update_watchers(self, watchers):
-        store.set_watchers(watchers)
-
-    def update_breakpoints(self, enabled, breakpoints):
-        store.set_breakpoints(enabled, breakpoints)
-
-    def update_breakpoints_supported(self, enabled):
-        store.set_breakpoints_supported(enabled)
-
-
-class ShortcutInput(InputComponent):
-    def __init__(self, shortcuts, dispatcher):
+class ShortcutsComponent(Component):
+    def __init__(self, shortcuts):
+        super().__init__()
         self._shortcuts = shortcuts
-        self._dispatcher = dispatcher
 
     def handle_input(self, ch):
-        if state.input_focus:
-            return False
-        if self._shortcuts.has_global(ch):
-            self._shortcuts.get_global(ch).callback()
-            return True
-
         layer = self._shortcuts.get(state.active_mode)
         if layer and layer.has(ch):
             layer.get(ch).callback()
             return True
-
-        lower_ch = ch
-        if ord("A") <= ch <= ord("Z"):
-            lower_ch = ch + 32
-        if state.displaylist_inspect and lower_ch in (ord("j"), ord("k")):
-            if lower_ch == ord("j"):
-                self._dispatcher.dispatch(Actions.DLIST_NEXT)
-            else:
-                self._dispatcher.dispatch(Actions.DLIST_PREV)
-            return True
-        if state.displaylist_inspect and ch in (curses.KEY_UP, curses.KEY_DOWN):
-            if ch == curses.KEY_DOWN:
-                self._dispatcher.dispatch(Actions.DLIST_NEXT)
-            else:
-                self._dispatcher.dispatch(Actions.DLIST_PREV)
+        if self._shortcuts.has_global(ch):
+            self._shortcuts.get_global(ch).callback()
             return True
         return False

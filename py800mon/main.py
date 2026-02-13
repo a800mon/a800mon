@@ -2,7 +2,7 @@ import asyncio
 import curses
 
 from . import debug
-from .actions import ActionDispatcher, Actions, ShortcutInput
+from .actions import ActionDispatcher, Actions, ShortcutsComponent
 from .app import App, Component
 from .appstate import AppMode, shortcuts, state
 from .breakpoints import BreakpointsViewer
@@ -23,18 +23,18 @@ from .ui import Color, Screen, Window
 
 
 class AppModeUpdater(Component):
-    def __init__(self, dispatcher):
-        self._dispatcher = dispatcher
+    def __init__(self):
+        super().__init__()
         self._last_paused = None
 
     async def update(self):
         if self._last_paused is None:
             self._last_paused = state.paused
-            self._dispatcher.dispatch(Actions.SYNC_MODE)
+            self.app.dispatch_action(Actions.SYNC_MODE)
             return True
         if state.paused != self._last_paused:
             self._last_paused = state.paused
-            self._dispatcher.dispatch(Actions.SYNC_MODE)
+            self.app.dispatch_action(Actions.SYNC_MODE)
             return True
         return False
 
@@ -65,8 +65,9 @@ async def main(scr, socket_path):
         caps = await rpc.config()
     except RpcException:
         caps = []
-    dispatcher.update_breakpoints_supported(
-        CAP_MONITOR_BREAKPOINTS in set(caps)
+    dispatcher.dispatch(
+        Actions.SET_BREAKPOINTS_SUPPORTED,
+        CAP_MONITOR_BREAKPOINTS in set(caps),
     )
 
     wcpu = Window(title="CPU State")
@@ -97,20 +98,27 @@ async def main(scr, socket_path):
         paused_interval=0.2,
         running_interval=0.05,
     )
-    dispatcher.set_after_rpc(status_updater.request_refresh)
-    appmode_updater = AppModeUpdater(dispatcher)
+    appmode_updater = AppModeUpdater()
     shortcutbar = ShortcutBar(bottom)
     wdisasm.visible = state.disassembly_enabled
     wbreakpoints.visible = state.breakpoints_supported
 
     def init_screen(scr):
         w, h = scr.size
-        wcpu.reshape(x=0, y=h - 5, w=w, h=3)
-        left_total_h = max(2, wcpu.y - 3)
-        dlist_h = max(1, left_total_h // 2)
-        watch_h = max(1, left_total_h - dlist_h)
-        wdlist.reshape(x=0, y=2, w=40, h=dlist_h)
-        wwatch.reshape(x=0, y=2 + dlist_h, w=40, h=watch_h)
+        top_y = 1
+        breakpoints_h_target = 13
+        wcpu.reshape(x=0, y=h - 4, w=w, h=3)
+        old_upper_h = max(1, wcpu.y - top_y - 1)
+        upper_h = old_upper_h + 1
+        left_total_h = max(2, old_upper_h)
+        old_dlist_h = max(1, left_total_h // 2)
+        dlist_h = old_dlist_h
+        watch_h = max(1, left_total_h - old_dlist_h + 1)
+        transfer = min(4, max(0, watch_h - 1))
+        dlist_h += transfer
+        watch_h -= transfer
+        wdlist.reshape(x=0, y=top_y, w=40, h=dlist_h)
+        wwatch.reshape(x=0, y=top_y + dlist_h, w=40, h=watch_h)
         right_x = wdlist.x + wdlist.w + 2
         right_total = max(1, w - right_x)
         gap = 2
@@ -136,62 +144,70 @@ async def main(scr, socket_path):
                 history_w = max(1, remaining // 2)
                 disasm_w = max(1, remaining - history_w)
 
-            wscreen.reshape(x=right_x, y=2, w=screen_w, h=wcpu.y - 3)
+            wscreen.reshape(x=right_x, y=top_y, w=screen_w, h=upper_h)
             wdisasm.reshape(
                 x=wscreen.x + wscreen.w + gap,
-                y=2,
+                y=top_y,
                 w=disasm_w,
-                h=wcpu.y - 3,
+                h=upper_h,
             )
             history_x = wdisasm.x + wdisasm.w + gap
-            history_h = max(1, wcpu.y - 3)
+            history_h = upper_h
             if wbreakpoints.visible:
-                history_top_h = max(1, history_h // 2)
+                break_h = min(
+                    breakpoints_h_target,
+                    max(1, history_h - 1),
+                )
+                history_top_h = max(1, history_h - break_h)
                 break_h = max(1, history_h - history_top_h)
                 whistory.reshape(
                     x=history_x,
-                    y=2,
+                    y=top_y,
                     w=history_w,
                     h=history_top_h,
                 )
                 wbreakpoints.reshape(
                     x=history_x,
-                    y=2 + history_top_h,
+                    y=top_y + history_top_h,
                     w=history_w,
                     h=break_h,
                 )
             else:
                 whistory.reshape(
                     x=history_x,
-                    y=2,
+                    y=top_y,
                     w=history_w,
                     h=history_h,
                 )
         else:
             screen_w = base_screen_w
             history_w = base_history_w
-            wscreen.reshape(x=right_x, y=2, w=screen_w, h=wcpu.y - 3)
+            wscreen.reshape(x=right_x, y=top_y, w=screen_w, h=upper_h)
             history_x = wscreen.x + wscreen.w + gap
-            history_h = max(1, wcpu.y - 3)
+            history_h = upper_h
             if wbreakpoints.visible:
-                history_top_h = max(1, history_h // 2)
+                break_h = min(
+                    breakpoints_h_target,
+                    max(1, history_h - 1),
+                )
+                history_top_h = max(1, history_h - break_h)
                 break_h = max(1, history_h - history_top_h)
                 whistory.reshape(
                     x=history_x,
-                    y=2,
+                    y=top_y,
                     w=history_w,
                     h=history_top_h,
                 )
                 wbreakpoints.reshape(
                     x=history_x,
-                    y=2 + history_top_h,
+                    y=top_y + history_top_h,
                     w=history_w,
                     h=break_h,
                 )
             else:
                 whistory.reshape(
                     x=history_x,
-                    y=2,
+                    y=top_y,
                     w=history_w,
                     h=history_h,
                 )
@@ -199,8 +215,13 @@ async def main(scr, socket_path):
         bottom.reshape(x=0, y=h - 1, w=w, h=1)
 
     screen = Screen(scr, layout_initializer=init_screen)
+    dispatcher.set_input_focus_handler(screen.set_input_focus)
+    screen.set_focus_order(
+        [wdlist, wwatch, wscreen, wdisasm, whistory, wbreakpoints]
+    )
     app = App(
         screen=screen,
+        dispatcher=dispatcher,
         status_updater=status_updater,
         input_timeout_ms=200,
     )
@@ -209,33 +230,14 @@ async def main(scr, socket_path):
         screen=screen,
         window=wbreakpoints,
     )
-    disassembly_view.bind_input(
-        screen,
-        set_address=lambda addr: dispatcher.dispatch(
-            Actions.SET_DISASSEMBLY_ADDR, addr
-        ),
-        set_input_focus=lambda enabled: dispatcher.dispatch(
-            Actions.SET_INPUT_FOCUS, enabled
-        ),
-        set_input_target=lambda target: dispatcher.dispatch(
-            Actions.SET_INPUT_TARGET, target
-        ),
-        set_input_buffer=lambda text: dispatcher.dispatch(
-            Actions.SET_INPUT_BUFFER, text
-        ),
-    )
-    watchers_view.bind_input(screen, dispatcher)
-    breakpoints_view.bind_input(screen)
-    breakpoints_view.attach_dispatcher(dispatcher)
-
     def build_shortcuts():
         def action(key, label, action):
-            return Shortcut(key, label, lambda: dispatcher.dispatch(action))
+            return Shortcut(key, label, lambda: app.dispatch_action(action))
 
         def step_with_follow(action_id):
             def run():
                 disassembly_view.enable_follow()
-                dispatcher.dispatch(action_id)
+                app.dispatch_action(action_id)
 
             return run
 
@@ -249,6 +251,11 @@ async def main(scr, socket_path):
             "Step VBLANK",
             step_with_follow(Actions.STEP_VBLANK),
         )
+        step_over = Shortcut(
+            curses.KEY_F0 + 7,
+            "Step over",
+            step_with_follow(Actions.STEP_OVER),
+        )
         pause = action(curses.KEY_F0 + 8, "Pause", Actions.PAUSE)
         cont = action(curses.KEY_F0 + 8, "Continue", Actions.CONTINUE)
         enter_shutdown = action(27, "Shutdown", Actions.ENTER_SHUTDOWN)
@@ -257,12 +264,14 @@ async def main(scr, socket_path):
         normal = ShortcutLayer("NORMAL")
         normal.add(step)
         normal.add(step_vblank)
+        normal.add(step_over)
         normal.add(pause)
         normal.add(enter_shutdown)
 
         debug = ShortcutLayer("DEBUG", color=Color.APPMODE_DEBUG)
         debug.add(step)
         debug.add(step_vblank)
+        debug.add(step_over)
         debug.add(cont)
         debug.add(enter_shutdown)
 
@@ -276,28 +285,21 @@ async def main(scr, socket_path):
         shortcuts.add(AppMode.DEBUG, debug)
         shortcuts.add(AppMode.SHUTDOWN, shutdown)
 
-        def toggle_dlist():
-            new_val = not state.displaylist_inspect
-            dispatcher.dispatch(Actions.SET_DLIST_INSPECT, new_val)
-            screen.focus(wdlist if new_val else None)
-
         def toggle_disassembly():
             if not wdisasm.visible:
                 if state.disassembly_addr is None:
-                    dispatcher.dispatch(
+                    app.dispatch_action(
                         Actions.SET_DISASSEMBLY_ADDR, state.cpu.pc & 0xFFFF
                     )
-                dispatcher.dispatch(Actions.SET_DISASSEMBLY, True)
+                app.dispatch_action(Actions.SET_DISASSEMBLY, True)
                 wdisasm.visible = True
                 app.rebuild_screen()
                 screen.focus(wdisasm)
-            elif screen.focused is not wdisasm:
-                screen.focus(wdisasm)
+                return
+            if screen.focused is wdisasm:
+                screen.focus(None)
             else:
-                screen.focus(wdlist if state.displaylist_inspect else None)
-                dispatcher.dispatch(Actions.SET_DISASSEMBLY, False)
-                wdisasm.visible = False
-                app.rebuild_screen()
+                screen.focus(wdisasm)
 
         def focus_watchers():
             if screen.focused is wwatch:
@@ -313,27 +315,60 @@ async def main(scr, socket_path):
             else:
                 screen.focus(wbreakpoints)
 
-        shortcuts.add_global(Shortcut("s", "Toggle DLIST", toggle_dlist))
-        shortcuts.add_global(Shortcut("W", "Watchers", focus_watchers))
-        shortcuts.add_global(Shortcut("B", "Breakpoints", focus_breakpoints))
-        shortcuts.add_global(Shortcut("d", "Disassembly", toggle_disassembly))
+        def focus_screen_buffer():
+            if screen.focused is wscreen:
+                screen.focus(None)
+            else:
+                screen.focus(wscreen)
+
+        def add_window_hotkey(window, key, label, callback):
+            shortcut = Shortcut(
+                key,
+                label,
+                callback,
+                visible_in_global_bar=False,
+            )
+            shortcuts.add_global(shortcut)
+            window.set_hotkey_label(shortcut.key_as_text())
+
+        add_window_hotkey(wdlist, "l", "DisplayList", lambda: screen.focus(
+            None if screen.focused is wdlist else wdlist
+        ))
+        add_window_hotkey(whistory, "h", "History", lambda: screen.focus(
+            None if screen.focused is whistory else whistory
+        ))
+        add_window_hotkey(wscreen, "s", "Screen Buffer", focus_screen_buffer)
+        add_window_hotkey(wwatch, "w", "Watchers", focus_watchers)
+        add_window_hotkey(wbreakpoints, "b", "Breakpoints", focus_breakpoints)
+        add_window_hotkey(wdisasm, "d", "Disassembly", toggle_disassembly)
         shortcuts.add_global(
             Shortcut(
                 9,
-                "ATASCII/ASCII",
-                lambda: dispatcher.dispatch(
-                    Actions.SET_ATASCII, not state.use_atascii),
+                "Next window",
+                screen.focus_next,
+                visible_in_global_bar=False,
             )
+        )
+        shortcuts.add_global(
+            Shortcut(
+                curses.KEY_BTAB,
+                "Previous window",
+                screen.focus_prev,
+                visible_in_global_bar=False,
+            )
+        )
+        shortcuts.add_global(
+            action(curses.KEY_F0 + 9, "Freeze", Actions.TOGGLE_FREEZE)
         )
         shortcuts.add_global(action("q", "Quit", Actions.QUIT))
 
-    input_processor = ShortcutInput(shortcuts, dispatcher)
+    shortcuts_component = ShortcutsComponent(shortcuts)
     app.add_component(dispatcher)
     app.add_component(cpu)
     app.add_component(disassembly_view)
     app.add_component(watchers_view)
     app.add_component(breakpoints_view)
-    app.add_component(input_processor)
+    app.add_component(shortcuts_component)
     app.add_component(topbar)
     app.add_component(appmode_updater)
     app.add_component(breakpoints_window_updater)

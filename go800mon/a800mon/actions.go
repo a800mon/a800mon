@@ -1,12 +1,17 @@
 package a800mon
 
-import "context"
+import (
+	"context"
+
+	"go800mon/internal/displaylist"
+)
 
 type Action int
 
 const (
 	ActionStep Action = iota + 1
 	ActionStepVBlank
+	ActionStepOver
 	ActionPause
 	ActionContinue
 	ActionSyncMode
@@ -15,46 +20,86 @@ const (
 	ActionColdStart
 	ActionWarmStart
 	ActionTerminate
-	ActionSetDListInspect
+	ActionToggleFreeze
 	ActionSetATASCII
 	ActionSetDisassembly
 	ActionSetDisassemblyAddr
+	ActionSetBreakpointsSupported
+	ActionSetStatus
+	ActionSetLastRPCError
+	ActionSetCPU
+	ActionSetHistory
+	ActionSetDisassemblyRows
+	ActionSetDList
+	ActionSetDMACTL
+	ActionSetFrameTimeMS
 	ActionSetInputFocus
-	ActionSetInputTarget
-	ActionSetInputBuffer
-	ActionSetWatcherPendingAddr
-	ActionCommitWatcherPending
-	ActionRemoveSelectedWatcher
-	ActionSetWatcherSelected
-	ActionDListNext
-	ActionDListPrev
 	ActionQuit
 )
+
+type CPUUpdate struct {
+	CPU    CPUState
+	Disasm string
+}
+
+type DListUpdate struct {
+	DList  displaylist.DisplayList
+	DMACTL byte
+}
 
 type StopLoop struct{}
 
 func (s StopLoop) Error() string { return "stop loop" }
 
 type ActionDispatcher struct {
-	rpc      *RpcClient
-	rpcQueue []Command
-	afterRPC func()
-	stopLoop bool
+	rpc           *RpcClient
+	rpcQueue      []Command
+	rpcFlushed    bool
+	stopLoop      bool
+	setInputFocus func(func(int) bool)
 }
 
 func NewActionDispatcher(rpc *RpcClient) *ActionDispatcher {
-	return &ActionDispatcher{rpc: rpc}
+	return &ActionDispatcher{
+		rpc:           rpc,
+		setInputFocus: func(func(int) bool) {},
+	}
 }
 
-func (d *ActionDispatcher) Update(ctx context.Context) (bool, error) { return false, nil }
-func (d *ActionDispatcher) HandleInput(ch int) bool                  { return false }
+func (d *ActionDispatcher) Update(ctx context.Context) (bool, error) {
+	if d.stopLoop {
+		return false, StopLoop{}
+	}
+	if len(d.rpcQueue) == 0 {
+		return false, nil
+	}
+	queue := d.rpcQueue
+	d.rpcQueue = nil
+	for _, cmd := range queue {
+		_, _ = d.rpc.Call(ctx, cmd, nil)
+	}
+	d.rpcFlushed = true
+	return true, nil
+}
+func (d *ActionDispatcher) HandleInput(ch int) bool { return false }
+func (d *ActionDispatcher) Render(force bool)       {}
 
-func (d *ActionDispatcher) SetAfterRPC(cb func()) {
-	d.afterRPC = cb
+func (d *ActionDispatcher) TakeRPCFlushed() bool {
+	flushed := d.rpcFlushed
+	d.rpcFlushed = false
+	return flushed
 }
 
 func (d *ActionDispatcher) enqueue(cmd Command) {
 	d.rpcQueue = append(d.rpcQueue, cmd)
+}
+
+func (d *ActionDispatcher) SetInputFocusHandler(callback func(func(int) bool)) {
+	if callback == nil {
+		d.setInputFocus = func(func(int) bool) {}
+		return
+	}
+	d.setInputFocus = callback
 }
 
 func (d *ActionDispatcher) Dispatch(action Action, value any) error {
@@ -64,6 +109,8 @@ func (d *ActionDispatcher) Dispatch(action Action, value any) error {
 		d.enqueue(CmdStep)
 	case ActionStepVBlank:
 		d.enqueue(CmdStepVBlank)
+	case ActionStepOver:
+		d.enqueue(CmdStepOver)
 	case ActionPause:
 		d.enqueue(CmdPause)
 		store.setActiveMode(AppModeDebug)
@@ -95,12 +142,8 @@ func (d *ActionDispatcher) Dispatch(action Action, value any) error {
 	case ActionTerminate:
 		d.enqueue(CmdStopEmulator)
 		return d.Dispatch(ActionExitShutdown, nil)
-	case ActionSetDListInspect:
-		v := false
-		if b, ok := value.(bool); ok {
-			v = b
-		}
-		store.setDisplayListInspect(v)
+	case ActionToggleFreeze:
+		store.setUIFrozen(!st.UIFrozen)
 	case ActionSetATASCII:
 		v := false
 		if b, ok := value.(bool); ok {
@@ -117,157 +160,62 @@ func (d *ActionDispatcher) Dispatch(action Action, value any) error {
 		if v, ok := value.(uint16); ok {
 			store.setDisassemblyAddr(&v)
 		}
-	case ActionSetInputFocus:
+	case ActionSetBreakpointsSupported:
 		v := false
 		if b, ok := value.(bool); ok {
 			v = b
 		}
-		store.setInputFocus(v)
-	case ActionSetInputTarget:
+		store.setBreakpointsSupported(v)
+	case ActionSetStatus:
+		if status, ok := value.(Status); ok {
+			store.setStatus(
+				status.Paused,
+				status.EmuMS,
+				status.ResetMS,
+				status.Crashed,
+				status.StateSeq,
+			)
+		}
+	case ActionSetLastRPCError:
 		if text, ok := value.(string); ok {
-			store.setInputTarget(text)
+			store.setLastRPCError(text)
 		} else {
-			store.setInputTarget("")
+			store.setLastRPCError("")
 		}
-	case ActionSetInputBuffer:
-		if text, ok := value.(string); ok {
-			store.setInputBuffer(text)
+	case ActionSetCPU:
+		if update, ok := value.(CPUUpdate); ok {
+			store.setCPU(update.CPU, update.Disasm)
 		}
-	case ActionSetWatcherPendingAddr:
+	case ActionSetHistory:
+		if rows, ok := value.([]CpuHistoryEntry); ok {
+			store.setHistory(rows)
+		}
+	case ActionSetDisassemblyRows:
+		if rows, ok := value.([]DisasmRow); ok {
+			store.setDisassemblyRows(rows)
+		}
+	case ActionSetDList:
+		if update, ok := value.(DListUpdate); ok {
+			store.setDList(update.DList, update.DMACTL)
+		}
+	case ActionSetDMACTL:
+		if dmactl, ok := value.(byte); ok {
+			store.setDList(st.DList, dmactl)
+		}
+	case ActionSetFrameTimeMS:
+		if ms, ok := value.(int); ok {
+			store.setFrameTimeMS(ms)
+		}
+	case ActionSetInputFocus:
 		if value == nil {
-			store.setWatcherPending(nil)
-			break
+			d.setInputFocus(nil)
+			return nil
 		}
-		addr := uint16(0)
-		ok := true
-		switch v := value.(type) {
-		case uint16:
-			addr = v
-		case int:
-			addr = uint16(v & 0xFFFF)
-		default:
-			ok = false
+		if handler, ok := value.(func(int) bool); ok {
+			d.setInputFocus(handler)
 		}
-		if !ok {
-			break
-		}
-		store.setWatcherPending(&WatcherRow{Addr: addr, Value: 0, Comment: ""})
-	case ActionCommitWatcherPending:
-		if st.WatcherPending == nil {
-			break
-		}
-		rows := make([]WatcherRow, len(st.Watchers))
-		copy(rows, st.Watchers)
-		for i, row := range rows {
-			if row.Addr == st.WatcherPending.Addr {
-				idx := i
-				store.setWatcherSelected(&idx)
-				store.setWatcherPending(nil)
-				return nil
-			}
-		}
-		rows = append([]WatcherRow{*st.WatcherPending}, rows...)
-		store.setWatchers(rows)
-		store.setWatcherSelected(nil)
-		store.setWatcherPending(nil)
-	case ActionRemoveSelectedWatcher:
-		if st.WatcherSelected == nil {
-			break
-		}
-		idx := *st.WatcherSelected
-		if idx < 0 || idx >= len(st.Watchers) {
-			break
-		}
-		rows := make([]WatcherRow, 0, len(st.Watchers)-1)
-		rows = append(rows, st.Watchers[:idx]...)
-		rows = append(rows, st.Watchers[idx+1:]...)
-		store.setWatchers(rows)
-		if len(rows) == 0 {
-			store.setWatcherSelected(nil)
-		} else {
-			if idx >= len(rows) {
-				idx = len(rows) - 1
-			}
-			store.setWatcherSelected(&idx)
-		}
-	case ActionSetWatcherSelected:
-		if value == nil {
-			store.setWatcherSelected(nil)
-			break
-		}
-		switch v := value.(type) {
-		case int:
-			idx := v
-			store.setWatcherSelected(&idx)
-		}
-	case ActionDListNext:
-		if !st.DisplayListInspect {
-			break
-		}
-		n := 0
-		if st.DListSelectedRegion != nil {
-			n = *st.DListSelectedRegion
-		}
-		n++
-		store.setDListSelectedRegion(&n)
-	case ActionDListPrev:
-		if !st.DisplayListInspect {
-			break
-		}
-		n := 0
-		if st.DListSelectedRegion != nil {
-			n = *st.DListSelectedRegion
-		}
-		n--
-		if n < 0 {
-			n = 0
-		}
-		store.setDListSelectedRegion(&n)
 	case ActionQuit:
 		d.stopLoop = true
 	}
 	return nil
-}
-
-func (d *ActionDispatcher) PostRender(ctx context.Context) error {
-	if d.stopLoop {
-		return StopLoop{}
-	}
-	if len(d.rpcQueue) == 0 {
-		return nil
-	}
-	queue := d.rpcQueue
-	d.rpcQueue = nil
-	for _, cmd := range queue {
-		_, _ = d.rpc.Call(ctx, cmd, nil)
-	}
-	if d.afterRPC != nil {
-		d.afterRPC()
-	}
-	return nil
-}
-
-func (d *ActionDispatcher) updateStatus(status Status) {
-	store.setStatus(status.Paused, status.EmuMS, status.ResetMS, status.Crashed, status.StateSeq)
-}
-
-func (d *ActionDispatcher) updateLastRPCError(text string) {
-	store.setLastRPCError(text)
-}
-
-func (d *ActionDispatcher) updateCPU(cpu CPUState, dis string) {
-	store.setCPU(cpu, dis)
-}
-
-func (d *ActionDispatcher) updateWatchers(rows []WatcherRow, pending *WatcherRow) {
-	store.setWatchers(rows)
-	store.setWatcherPending(pending)
-}
-
-func (d *ActionDispatcher) updateBreakpoints(enabled bool, clauses []BreakpointClauseRow) {
-	store.setBreakpoints(enabled, clauses)
-}
-
-func (d *ActionDispatcher) updateBreakpointsSupported(enabled bool) {
-	store.setBreakpointsSupported(enabled)
 }

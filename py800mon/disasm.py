@@ -44,6 +44,17 @@ def disasm_6502_one(start_addr: int, data: bytes) -> str:
     return f"{raw_text:<8} {asm_text}"
 
 
+def assemble_6502_one(addr: int, statement: str) -> bytes:
+    text = str(statement).split(";", 1)[0].strip()
+    if not text:
+        raise SyntaxError("Empty instruction")
+    assembler = _get_assembler()
+    data = assembler.assemble(text, pc=int(addr) & 0xFFFF)
+    if not data:
+        raise SyntaxError("Assembly produced no bytes")
+    return bytes(int(v) & 0xFF for v in data)
+
+
 def disasm_6502_one_parts(start_addr: int, data: bytes) -> tuple[str, str]:
     ins = disasm_6502_one_decoded(start_addr, data)
     if ins is None:
@@ -102,6 +113,24 @@ def _build_mpu(start_addr: int, data: bytes):
     return mpu, start
 
 
+_ASSEMBLER = None
+
+
+def _get_assembler():
+    global _ASSEMBLER
+    if _ASSEMBLER is not None:
+        return _ASSEMBLER
+    try:
+        from py65.assembler import Assembler
+        from py65.devices.mpu6502 import MPU
+    except ModuleNotFoundError as exc:
+        raise RuntimeError(
+            "Missing dependency: py65. Install project dependencies first."
+        ) from exc
+    _ASSEMBLER = Assembler(MPU())
+    return _ASSEMBLER
+
+
 def _decode_instruction(mpu, pc: int, remain: int) -> DecodedInstruction:
     opcode = mpu.ByteAt(pc)
     mnemonic, addressing = mpu.disassemble[opcode]
@@ -141,44 +170,53 @@ def _decode_operand(mpu, pc: int, addressing: str):
     byte_fmt = mpu.BYTE_FORMAT
     addr_mask = mpu.addrMask
     byte_mask = mpu.byteMask
+    pc = pc & addr_mask
+
+    def byte_at(offset: int) -> int:
+        return mpu.ByteAt((pc + offset) & addr_mask)
+
+    def word_at(offset: int) -> int:
+        lo = byte_at(offset)
+        hi = byte_at(offset + 1)
+        return lo | (hi << mpu.BYTE_WIDTH)
 
     if addressing == "acc":
         return "A", 1, None, None
     if addressing == "abs":
-        address = mpu.WordAt(pc + 1)
+        address = word_at(1)
         token = ("$" + (addr_fmt % address)).upper()
         return token, 3, address, (0, len(token))
     if addressing == "abx":
-        address = mpu.WordAt(pc + 1)
+        address = word_at(1)
         token = ("$" + (addr_fmt % address)).upper()
         return f"{token},X", 3, address, (0, len(token))
     if addressing == "aby":
-        address = mpu.WordAt(pc + 1)
+        address = word_at(1)
         token = ("$" + (addr_fmt % address)).upper()
         return f"{token},Y", 3, address, (0, len(token))
     if addressing == "imm":
-        value = mpu.ByteAt(pc + 1)
+        value = byte_at(1)
         return "#$" + (byte_fmt % value), 2, None, None
     if addressing == "imp":
         return "", 1, None, None
     if addressing == "ind":
-        address = mpu.WordAt(pc + 1)
+        address = word_at(1)
         token = ("$" + (addr_fmt % address)).upper()
         return f"({token})", 3, address, (1, 1 + len(token))
     if addressing == "iny":
-        zp = mpu.ByteAt(pc + 1)
+        zp = byte_at(1)
         token = ("$" + (byte_fmt % zp)).upper()
         return f"({token}),Y", 2, zp, (1, 1 + len(token))
     if addressing == "inx":
-        zp = mpu.ByteAt(pc + 1)
+        zp = byte_at(1)
         token = ("$" + (byte_fmt % zp)).upper()
         return f"({token},X)", 2, zp, (1, 1 + len(token))
     if addressing == "iax":
-        address = mpu.WordAt(pc + 1)
+        address = word_at(1)
         token = ("$" + (addr_fmt % address)).upper()
         return f"({token},X)", 3, address, (1, 1 + len(token))
     if addressing == "rel":
-        opv = mpu.ByteAt(pc + 1)
+        opv = byte_at(1)
         target = pc + 2
         if opv & (1 << (mpu.BYTE_WIDTH - 1)):
             target -= (opv ^ byte_mask) + 1
@@ -188,19 +226,19 @@ def _decode_operand(mpu, pc: int, addressing: str):
         token = ("$" + (addr_fmt % target)).upper()
         return token, 2, target, (0, len(token))
     if addressing == "zpi":
-        zp = mpu.ByteAt(pc + 1)
+        zp = byte_at(1)
         token = ("$" + (byte_fmt % zp)).upper()
         return f"({token})", 2, zp, (1, 1 + len(token))
     if addressing == "zpg":
-        zp = mpu.ByteAt(pc + 1)
+        zp = byte_at(1)
         token = ("$" + (byte_fmt % zp)).upper()
         return token, 2, zp, (0, len(token))
     if addressing == "zpx":
-        zp = mpu.ByteAt(pc + 1)
+        zp = byte_at(1)
         token = ("$" + (byte_fmt % zp)).upper()
         return f"{token},X", 2, zp, (0, len(token))
     if addressing == "zpy":
-        zp = mpu.ByteAt(pc + 1)
+        zp = byte_at(1)
         token = ("$" + (byte_fmt % zp)).upper()
         return f"{token},Y", 2, zp, (0, len(token))
     raise NotImplementedError(f"Addressing mode: {addressing!r}")

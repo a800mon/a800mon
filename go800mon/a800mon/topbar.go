@@ -12,17 +12,22 @@ const (
 )
 
 type TopBar struct {
-	BaseVisualComponent
+	BaseWindowComponent
 	lastSnapshot string
 }
 
+type topbarSegment struct {
+	text  string
+	color Color
+}
+
 func NewTopBar(window *Window) *TopBar {
-	return &TopBar{BaseVisualComponent: NewBaseVisualComponent(window)}
+	return &TopBar{BaseWindowComponent: NewBaseWindowComponent(window)}
 }
 
 func (t *TopBar) Update(_ctx context.Context) (bool, error) {
 	st := State()
-	snap := fmt.Sprintf("%s|%t|%d|%d|%d", st.LastRPCError, st.Crashed, st.EmuMS, st.ResetMS, st.MonitorFrameTimeMS)
+	snap := fmt.Sprintf("%s|%t|%d|%d|%d|%t", st.LastRPCError, st.Crashed, st.EmuMS, st.ResetMS, st.MonitorFrameTimeMS, st.UIFrozen)
 	if t.lastSnapshot == snap {
 		return false, nil
 	}
@@ -40,6 +45,10 @@ func (t *TopBar) Render(_force bool) {
 		w.FillToEOL(' ', ColorError.Attr())
 	} else {
 		w.Print(topbarTitle+"     "+topbarCopyright, ColorTopbar.Attr(), false)
+		if st.UIFrozen {
+			w.Print("   ", ColorTopbar.Attr(), false)
+			w.Print(" FREEZE ", ColorError.Attr(), false)
+		}
 		w.FillToEOL(' ', ColorTopbar.Attr())
 	}
 	start := w.Width() - topbarRightWidth
@@ -47,18 +56,16 @@ func (t *TopBar) Render(_force bool) {
 		start = 0
 	}
 	w.Cursor(start, 0)
-	segments := [][2]any{
-		{crashLabel(st.Crashed), crashColor(st.Crashed)},
-		{" UP ", ColorText},
-		{fmt.Sprintf(" %s ", formatHMS(st.EmuMS)), ColorTopbar},
-		{" RS ", ColorText},
-		{fmt.Sprintf(" %s ", formatHMS(st.ResetMS)), ColorTopbar},
-		{fmt.Sprintf(" %3d ms ", st.MonitorFrameTimeMS), ColorText},
+	segments := []topbarSegment{
+		{text: crashLabel(st.Crashed), color: crashColor(st.Crashed)},
+		{text: " UP ", color: ColorText},
+		{text: fmt.Sprintf(" %s ", formatHMS(st.EmuMS)), color: ColorTopbar},
+		{text: " RS ", color: ColorText},
+		{text: fmt.Sprintf(" %s ", formatHMS(st.ResetMS)), color: ColorTopbar},
+		{text: fmt.Sprintf(" %3d ms ", st.MonitorFrameTimeMS), color: ColorText},
 	}
 	for _, segment := range segments {
-		text := segment[0].(string)
-		color := segment[1].(Color)
-		w.Print(text, color.Attr(), false)
+		w.Print(segment.text, segment.color.Attr(), false)
 	}
 }
 

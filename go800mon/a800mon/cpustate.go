@@ -3,12 +3,12 @@ package a800mon
 import "context"
 
 type CpuStateViewer struct {
-	BaseVisualComponent
+	BaseWindowComponent
 	lastSnapshot string
 }
 
 func NewCpuStateViewer(window *Window) *CpuStateViewer {
-	v := &CpuStateViewer{BaseVisualComponent: NewBaseVisualComponent(window)}
+	v := &CpuStateViewer{BaseWindowComponent: NewBaseWindowComponent(window)}
 	return v
 }
 

@@ -25,29 +25,20 @@ type AppStateData struct {
 	Crashed              bool
 	StateSeq             uint64
 	LastRPCError         string
-	DListSelectedRegion  *int
 	ActiveMode           AppMode
-	DisplayListInspect   bool
+	UIFrozen             bool
 	UseATASCII           bool
 	DisassemblyEnabled   bool
 	DisassemblyAddr      *uint16
-	InputFocus           bool
-	InputTarget          string
-	InputBuffer          string
 	DMACTL               byte
-	ScreenRows           []ScreenRow
 	History              []CpuHistoryEntry
 	DisassemblyRows      []DisasmRow
-	Watchers             []WatcherRow
-	WatcherPending       *WatcherRow
-	WatcherSelected      *int
-	BreakpointsEnabled   bool
 	BreakpointsSupported bool
-	Breakpoints          []BreakpointClauseRow
 }
 
 type DisasmRow struct {
 	Addr           uint16
+	Size           int
 	RawText        string
 	AsmText        string
 	Mnemonic       string
@@ -93,7 +84,7 @@ func newStateStore() *StateStore {
 		s: AppStateData{
 			ActiveMode:         AppModeNormal,
 			UseATASCII:         true,
-			DisassemblyEnabled: false,
+			DisassemblyEnabled: true,
 		},
 	}
 }
@@ -106,11 +97,6 @@ func State() AppStateData {
 
 func (s *StateStore) snapshotLocked() AppStateData {
 	st := s.s
-	if st.ScreenRows != nil {
-		rows := make([]ScreenRow, len(st.ScreenRows))
-		copy(rows, st.ScreenRows)
-		st.ScreenRows = rows
-	}
 	if st.History != nil {
 		h := make([]CpuHistoryEntry, len(st.History))
 		copy(h, st.History)
@@ -120,24 +106,6 @@ func (s *StateStore) snapshotLocked() AppStateData {
 		d := make([]DisasmRow, len(st.DisassemblyRows))
 		copy(d, st.DisassemblyRows)
 		st.DisassemblyRows = d
-	}
-	if st.Watchers != nil {
-		w := make([]WatcherRow, len(st.Watchers))
-		copy(w, st.Watchers)
-		st.Watchers = w
-	}
-	if st.Breakpoints != nil {
-		clauses := make([]BreakpointClauseRow, len(st.Breakpoints))
-		for i, clause := range st.Breakpoints {
-			conds := make([]BreakpointConditionRow, len(clause.Conditions))
-			copy(conds, clause.Conditions)
-			clauses[i] = BreakpointClauseRow{Conditions: conds}
-		}
-		st.Breakpoints = clauses
-	}
-	if st.WatcherPending != nil {
-		p := *st.WatcherPending
-		st.WatcherPending = &p
 	}
 	return st
 }
@@ -172,14 +140,6 @@ func (s *StateStore) setDList(dl displaylist.DisplayList, dmactl byte) {
 	s.s.DMACTL = dmactl
 }
 
-func (s *StateStore) setScreenRows(rows []ScreenRow) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	out := make([]ScreenRow, len(rows))
-	copy(out, rows)
-	s.s.ScreenRows = out
-}
-
 func (s *StateStore) setHistory(rows []CpuHistoryEntry) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -202,24 +162,6 @@ func (s *StateStore) setFrameTimeMS(ms int) {
 	s.s.MonitorFrameTimeMS = ms
 }
 
-func (s *StateStore) setDisplayListInspect(enabled bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.s.DisplayListInspect = enabled
-	if !enabled {
-		s.s.DListSelectedRegion = nil
-	} else if s.s.DListSelectedRegion == nil {
-		idx := 0
-		s.s.DListSelectedRegion = &idx
-	}
-}
-
-func (s *StateStore) setDListSelectedRegion(idx *int) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.s.DListSelectedRegion = idx
-}
-
 func (s *StateStore) setUseATASCII(enabled bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -238,96 +180,16 @@ func (s *StateStore) setDisassemblyAddr(addr *uint16) {
 	s.s.DisassemblyAddr = addr
 }
 
-func (s *StateStore) setInputFocus(enabled bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.s.InputFocus = enabled
-}
-
-func (s *StateStore) setInputTarget(target string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.s.InputTarget = target
-}
-
-func (s *StateStore) setInputBuffer(text string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.s.InputBuffer = text
-}
-
-func (s *StateStore) setWatchers(rows []WatcherRow) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	out := make([]WatcherRow, len(rows))
-	copy(out, rows)
-	s.s.Watchers = out
-	if len(out) == 0 {
-		s.s.WatcherSelected = nil
-		return
-	}
-	if s.s.WatcherSelected == nil {
-		return
-	}
-	idx := *s.s.WatcherSelected
-	if idx < 0 {
-		idx = 0
-	}
-	if idx >= len(out) {
-		idx = len(out) - 1
-	}
-	s.s.WatcherSelected = &idx
-}
-
-func (s *StateStore) setWatcherPending(row *WatcherRow) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if row == nil {
-		s.s.WatcherPending = nil
-		return
-	}
-	v := *row
-	s.s.WatcherPending = &v
-}
-
-func (s *StateStore) setWatcherSelected(idx *int) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if idx == nil {
-		s.s.WatcherSelected = nil
-		return
-	}
-	v := *idx
-	if len(s.s.Watchers) == 0 {
-		s.s.WatcherSelected = nil
-		return
-	}
-	if v < 0 {
-		v = 0
-	}
-	if v >= len(s.s.Watchers) {
-		v = len(s.s.Watchers) - 1
-	}
-	s.s.WatcherSelected = &v
-}
-
 func (s *StateStore) setActiveMode(mode AppMode) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.s.ActiveMode = mode
 }
 
-func (s *StateStore) setBreakpoints(enabled bool, clauses []BreakpointClauseRow) {
+func (s *StateStore) setUIFrozen(enabled bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.s.BreakpointsEnabled = enabled
-	out := make([]BreakpointClauseRow, len(clauses))
-	for i, clause := range clauses {
-		conds := make([]BreakpointConditionRow, len(clause.Conditions))
-		copy(conds, clause.Conditions)
-		out[i] = BreakpointClauseRow{Conditions: conds}
-	}
-	s.s.Breakpoints = out
+	s.s.UIFrozen = enabled
 }
 
 func (s *StateStore) setBreakpointsSupported(enabled bool) {

@@ -8,7 +8,6 @@ import (
 type Component interface {
 	Update(ctx context.Context) (bool, error)
 	HandleInput(ch int) bool
-	PostRender(ctx context.Context) error
 }
 
 type VisualComponent interface {
@@ -19,22 +18,42 @@ type VisualComponent interface {
 
 type App struct {
 	screen         *Screen
+	dispatcher     *ActionDispatcher
 	components     []Component
+	input          []Component
 	visual         []VisualComponent
 	statusUpdater  *StatusUpdater
 	inputTimeoutMS int
 }
 
-func NewApp(screen *Screen, updater *StatusUpdater, inputTimeoutMS int) *App {
-	return &App{screen: screen, statusUpdater: updater, inputTimeoutMS: inputTimeoutMS}
+func NewApp(screen *Screen, dispatcher *ActionDispatcher, updater *StatusUpdater, inputTimeoutMS int) *App {
+	return &App{
+		screen:         screen,
+		dispatcher:     dispatcher,
+		statusUpdater:  updater,
+		inputTimeoutMS: inputTimeoutMS,
+	}
 }
 
 func (a *App) AddComponent(c Component) {
+	if aware, ok := c.(interface{ setApp(*App) }); ok {
+		aware.setApp(a)
+	}
 	a.components = append(a.components, c)
 	if v, ok := c.(VisualComponent); ok {
 		a.visual = append(a.visual, v)
 		a.screen.Add(v.Window())
+		a.screen.SetWindowInputHandler(v.Window(), v.HandleInput)
+		return
 	}
+	a.input = append(a.input, c)
+}
+
+func (a *App) DispatchAction(action Action, value any) {
+	if a.dispatcher == nil {
+		return
+	}
+	_ = a.dispatcher.Dispatch(action, value)
 }
 
 func (a *App) RebuildScreen() {
@@ -59,6 +78,7 @@ func (a *App) Loop(ctx context.Context) error {
 			return err
 		}
 		start := time.Now()
+		wasFrozen := State().UIFrozen
 		syncedResize := a.screen.SyncResize()
 		ch := a.screen.GetInputChar()
 		hadInput := false
@@ -81,7 +101,14 @@ func (a *App) Loop(ctx context.Context) error {
 			hadResize = true
 		}
 		if hadResize || resizedByKey {
-			store.setFrameTimeMS(int(time.Since(start).Milliseconds()))
+			a.DispatchAction(ActionSetFrameTimeMS, int(time.Since(start).Milliseconds()))
+			continue
+		}
+		if State().UIFrozen {
+			if hadInput && !wasFrozen {
+				a.renderComponents(true)
+			}
+			a.DispatchAction(ActionSetFrameTimeMS, int(time.Since(start).Milliseconds()))
 			continue
 		}
 		hadTick := hadInput
@@ -93,7 +120,7 @@ func (a *App) Loop(ctx context.Context) error {
 			hadTick = hadTick || ticked
 		}
 		if !hadTick {
-			store.setFrameTimeMS(int(time.Since(start).Milliseconds()))
+			a.DispatchAction(ActionSetFrameTimeMS, int(time.Since(start).Milliseconds()))
 			continue
 		}
 		hadUpdates, err := a.updateState(ctx)
@@ -103,13 +130,11 @@ func (a *App) Loop(ctx context.Context) error {
 			}
 			return err
 		}
-		if err := a.renderComponents(hadInput || hadUpdates || hadResize); err != nil {
-			if _, ok := err.(StopLoop); ok {
-				return nil
-			}
-			return err
+		if a.statusUpdater != nil && a.dispatcher != nil && a.dispatcher.TakeRPCFlushed() {
+			a.statusUpdater.RequestRefresh()
 		}
-		store.setFrameTimeMS(int(time.Since(start).Milliseconds()))
+		a.renderComponents(hadInput || hadUpdates || hadResize)
+		a.DispatchAction(ActionSetFrameTimeMS, int(time.Since(start).Milliseconds()))
 	}
 }
 
@@ -118,7 +143,13 @@ func (a *App) handleInput(ch int) bool {
 		a.RebuildScreen()
 		return true
 	}
-	for _, c := range a.components {
+	if a.screen.HasInputFocus() {
+		return a.screen.HandleInput(ch)
+	}
+	if a.screen.HandleInput(ch) {
+		return true
+	}
+	for _, c := range a.input {
 		if c.HandleInput(ch) {
 			return true
 		}
@@ -138,7 +169,7 @@ func (a *App) updateState(ctx context.Context) (bool, error) {
 	return changed, nil
 }
 
-func (a *App) renderComponents(force bool) error {
+func (a *App) renderComponents(force bool) {
 	if force {
 		for _, c := range a.visual {
 			if !c.Window().Visible() {
@@ -159,28 +190,31 @@ func (a *App) renderComponents(force bool) error {
 	if needsUpdate {
 		a.screen.Update()
 	}
-	for _, c := range a.components {
-		if err := c.PostRender(context.Background()); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
-type BaseComponent struct{}
+type BaseComponent struct {
+	app *App
+}
+
+func (b *BaseComponent) setApp(app *App) {
+	b.app = app
+}
+
+func (b *BaseComponent) App() *App {
+	return b.app
+}
 
 func (b *BaseComponent) Update(ctx context.Context) (bool, error) { return false, nil }
 func (b *BaseComponent) HandleInput(ch int) bool                  { return false }
-func (b *BaseComponent) PostRender(ctx context.Context) error     { return nil }
 
-type BaseVisualComponent struct {
+type BaseWindowComponent struct {
 	BaseComponent
 	window *Window
 }
 
-func NewBaseVisualComponent(window *Window) BaseVisualComponent {
-	return BaseVisualComponent{window: window}
+func NewBaseWindowComponent(window *Window) BaseWindowComponent {
+	return BaseWindowComponent{window: window}
 }
 
-func (b *BaseVisualComponent) Window() *Window   { return b.window }
-func (b *BaseVisualComponent) Render(force bool) {}
+func (b *BaseWindowComponent) Window() *Window   { return b.window }
+func (b *BaseWindowComponent) Render(force bool) {}
