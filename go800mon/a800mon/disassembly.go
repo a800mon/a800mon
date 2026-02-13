@@ -10,11 +10,12 @@ import (
 )
 
 type DisassemblyViewer struct {
-	BaseVisualComponent
+	BaseWindowComponent
 	rpc                *RpcClient
 	grid               *GridWidget
 	screen             *Screen
 	dispatcher         *ActionDispatcher
+	addressInput       *AddressInputWidget
 	follow             bool
 	inputMode          string
 	selectedAddr       uint16
@@ -57,12 +58,15 @@ const (
 func NewDisassemblyViewer(rpc *RpcClient, window *Window) *DisassemblyViewer {
 	grid := NewGridWidget(window)
 	grid.SetGridColumnGap(0)
-	return &DisassemblyViewer{
-		BaseVisualComponent: NewBaseVisualComponent(window),
+	v := &DisassemblyViewer{
+		BaseWindowComponent: NewBaseWindowComponent(window),
 		rpc:                 rpc,
 		grid:                grid,
 		follow:              true,
 	}
+	v.addressInput = NewAddressInputWidget(window)
+	v.addressInput.SetColor(ColorAddress)
+	return v
 }
 
 func (d *DisassemblyViewer) BindInput(screen *Screen, dispatcher *ActionDispatcher) {
@@ -402,7 +406,8 @@ func (d *DisassemblyViewer) HandleInput(ch int) bool {
 	d.inputSnapshot = formatHex16(addr)
 	d.replaceOnNextInput = true
 	d.inputMode = inputModeAddr
-	_ = d.dispatcher.Dispatch(ActionSetInputBuffer, d.inputSnapshot)
+	d.addressInput.Activate(d.inputSnapshot)
+	_ = d.dispatcher.Dispatch(ActionSetInputBuffer, d.addressInput.Buffer())
 	_ = d.dispatcher.Dispatch(ActionSetInputTarget, "disassembly")
 	_ = d.dispatcher.Dispatch(ActionSetInputFocus, true)
 	return true
@@ -598,14 +603,14 @@ func linearAddrs(decoded []disasm.DecodedInstruction) []uint16 {
 }
 
 func (d *DisassemblyViewer) handleAddressInput(ch int) bool {
-	st := State()
 	if ch == 27 {
-		d.updateAddressInput(strings.ToUpper(d.inputSnapshot))
+		_ = d.addressInput.SetBuffer(strings.ToUpper(d.inputSnapshot))
+		d.updateAddressInput(d.addressInput.Buffer())
 		d.closeInput()
 		return true
 	}
 	if ch == 10 || ch == 13 || ch == KeyEnter() {
-		text := strings.ToUpper(st.InputBuffer)
+		text := strings.ToUpper(d.addressInput.Buffer())
 		if text != "" {
 			d.updateAddressInput(text)
 		}
@@ -614,29 +619,22 @@ func (d *DisassemblyViewer) handleAddressInput(ch int) bool {
 	}
 	if ch == KeyBackspace() || ch == 127 || ch == 8 {
 		d.replaceOnNextInput = false
-		text := st.InputBuffer
-		if len(text) > 0 {
-			text = text[:len(text)-1]
+		if d.addressInput.Backspace() {
+			d.updateAddressInput(d.addressInput.Buffer())
 		}
-		d.updateAddressInput(strings.ToUpper(text))
 		return true
 	}
-	if ch < 0 || ch > 255 {
-		return true
-	}
-	char := strings.ToUpper(string(rune(ch)))
-	if !((char >= "0" && char <= "9") || (char >= "A" && char <= "F")) {
-		return true
-	}
-	text := st.InputBuffer
 	if d.replaceOnNextInput {
-		text = ""
+		if !d.addressInput.AcceptsChar(ch) {
+			return true
+		}
+		_ = d.addressInput.SetBuffer("")
 		d.replaceOnNextInput = false
 	}
-	if len(text) >= 4 {
+	if d.addressInput.AppendChar(ch) {
+		d.updateAddressInput(d.addressInput.Buffer())
 		return true
 	}
-	d.updateAddressInput(text + char)
 	return true
 }
 
@@ -755,6 +753,7 @@ func (d *DisassemblyViewer) closeInput() {
 	d.editAddr = 0
 	d.editSnapshot = ""
 	d.editBytes = nil
+	d.addressInput.Deactivate()
 	_ = d.dispatcher.Dispatch(ActionSetInputTarget, "")
 	_ = d.dispatcher.Dispatch(ActionSetInputFocus, false)
 }

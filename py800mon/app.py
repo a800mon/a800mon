@@ -1,5 +1,6 @@
 import asyncio
 import curses
+import enum
 import time
 
 from . import debug
@@ -10,20 +11,17 @@ class StopLoop(Exception):
     pass
 
 
+class EventType(enum.Enum):
+    INPUT = enum.auto()
+    STATUS = enum.auto()
+
+
 class Component:
     async def update(self):
         return False
 
     def handle_input(self, ch):
         return False
-
-    async def post_render(self):
-        return False
-
-
-class InputComponent(Component):
-    pass
-
 
 class RpcComponent(Component):
     def __init__(self, rpc, *args, **kwargs):
@@ -88,10 +86,10 @@ class App:
                 start_time = time.time()
                 was_frozen = state.ui_frozen
                 had_input = False
-                if event_type == "input":
+                if event_type == EventType.INPUT:
                     had_input = self.handle_input(payload)
                 if state.ui_frozen:
-                    if event_type == "input" and had_input and not was_frozen:
+                    if event_type == EventType.INPUT and had_input and not was_frozen:
                         await self.render_components(force_redraw=True)
                     time_diff = time.time() - start_time
                     store.set_frame_time_ms(int(time_diff * 1000.0))
@@ -135,19 +133,18 @@ class App:
                     continue
                 component.render(force_redraw=True)
         if force_redraw or any(
-            component.window.visible and component.window._dirty
+            component.window.visible
+            and component.window._dirty
             for component in self._visual_components
         ):
             self._screen.update()
-        for component in self._components:
-            await component.post_render()
 
     async def _input_event_pump(self):
         while True:
             ch = await asyncio.to_thread(self._screen.get_input_char)
             if ch == -1:
                 continue
-            await self._event_queue.put(("input", ch))
+            await self._event_queue.put((EventType.INPUT, ch))
 
     def _handle_async_exception(self, loop, context):
         exc = context.get("exception")

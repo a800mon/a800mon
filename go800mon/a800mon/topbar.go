@@ -12,7 +12,7 @@ const (
 )
 
 type TopBar struct {
-	BaseVisualComponent
+	BaseWindowComponent
 	lastSnapshot string
 }
 
@@ -22,7 +22,7 @@ type topbarSegment struct {
 }
 
 func NewTopBar(window *Window) *TopBar {
-	return &TopBar{BaseVisualComponent: NewBaseVisualComponent(window)}
+	return &TopBar{BaseWindowComponent: NewBaseWindowComponent(window)}
 }
 
 func (t *TopBar) Update(_ctx context.Context) (bool, error) {

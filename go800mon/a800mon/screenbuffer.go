@@ -12,7 +12,7 @@ import (
 )
 
 type ScreenBufferInspector struct {
-	BaseVisualComponent
+	BaseWindowComponent
 	rpc            *RpcClient
 	grid           *GridWidget
 	screen         *Screen
@@ -31,7 +31,7 @@ func NewScreenBufferInspector(rpc *RpcClient, window *Window) *ScreenBufferInspe
 	grid.SetGridColumnGap(0)
 	grid.SetGridSelectionEnabled(false)
 	return &ScreenBufferInspector{
-		BaseVisualComponent: NewBaseVisualComponent(window),
+		BaseWindowComponent: NewBaseWindowComponent(window),
 		rpc:                 rpc,
 		grid:                grid,
 	}

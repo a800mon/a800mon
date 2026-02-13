@@ -18,7 +18,7 @@ func DecodeDisplayList(startAddr uint16, data []byte) dl.DisplayList {
 }
 
 type DisplayListViewer struct {
-	BaseVisualComponent
+	BaseWindowComponent
 	rpc          *RpcClient
 	lastSnapshot string
 	grid         *GridWidget
@@ -27,7 +27,7 @@ type DisplayListViewer struct {
 func NewDisplayListViewer(rpc *RpcClient, window *Window) *DisplayListViewer {
 	grid := NewGridWidget(window)
 	return &DisplayListViewer{
-		BaseVisualComponent: NewBaseVisualComponent(grid.Window()),
+		BaseWindowComponent: NewBaseWindowComponent(grid.Window()),
 		rpc:                 rpc,
 		grid:                grid,
 	}

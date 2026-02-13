@@ -8,7 +8,6 @@ import (
 type Component interface {
 	Update(ctx context.Context) (bool, error)
 	HandleInput(ch int) bool
-	PostRender(ctx context.Context) error
 }
 
 type VisualComponent interface {
@@ -87,12 +86,7 @@ func (a *App) Loop(ctx context.Context) error {
 		}
 		if State().UIFrozen {
 			if hadInput && !wasFrozen {
-				if err := a.renderComponents(true); err != nil {
-					if _, ok := err.(StopLoop); ok {
-						return nil
-					}
-					return err
-				}
+				a.renderComponents(true)
 			}
 			store.setFrameTimeMS(int(time.Since(start).Milliseconds()))
 			continue
@@ -116,12 +110,7 @@ func (a *App) Loop(ctx context.Context) error {
 			}
 			return err
 		}
-		if err := a.renderComponents(hadInput || hadUpdates || hadResize); err != nil {
-			if _, ok := err.(StopLoop); ok {
-				return nil
-			}
-			return err
-		}
+		a.renderComponents(hadInput || hadUpdates || hadResize)
 		store.setFrameTimeMS(int(time.Since(start).Milliseconds()))
 	}
 }
@@ -151,7 +140,7 @@ func (a *App) updateState(ctx context.Context) (bool, error) {
 	return changed, nil
 }
 
-func (a *App) renderComponents(force bool) error {
+func (a *App) renderComponents(force bool) {
 	if force {
 		for _, c := range a.visual {
 			if !c.Window().Visible() {
@@ -172,28 +161,21 @@ func (a *App) renderComponents(force bool) error {
 	if needsUpdate {
 		a.screen.Update()
 	}
-	for _, c := range a.components {
-		if err := c.PostRender(context.Background()); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 type BaseComponent struct{}
 
 func (b *BaseComponent) Update(ctx context.Context) (bool, error) { return false, nil }
 func (b *BaseComponent) HandleInput(ch int) bool                  { return false }
-func (b *BaseComponent) PostRender(ctx context.Context) error     { return nil }
 
-type BaseVisualComponent struct {
+type BaseWindowComponent struct {
 	BaseComponent
 	window *Window
 }
 
-func NewBaseVisualComponent(window *Window) BaseVisualComponent {
-	return BaseVisualComponent{window: window}
+func NewBaseWindowComponent(window *Window) BaseWindowComponent {
+	return BaseWindowComponent{window: window}
 }
 
-func (b *BaseVisualComponent) Window() *Window   { return b.window }
-func (b *BaseVisualComponent) Render(force bool) {}
+func (b *BaseWindowComponent) Window() *Window   { return b.window }
+func (b *BaseWindowComponent) Render(force bool) {}

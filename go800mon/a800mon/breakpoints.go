@@ -56,7 +56,7 @@ var bpAndWordRe = regexp.MustCompile(`(?i)\bAND\b`)
 var bpOrWordRe = regexp.MustCompile(`(?i)\bOR\b`)
 
 type BreakpointsViewer struct {
-	BaseVisualComponent
+	BaseWindowComponent
 	rpc              *RpcClient
 	grid             *GridWidget
 	screen           *Screen
@@ -83,7 +83,7 @@ func NewBreakpointsViewer(rpc *RpcClient, window *Window) *BreakpointsViewer {
 	grid := NewGridWidget(window)
 	grid.SetGridColumnGap(0)
 	v := &BreakpointsViewer{
-		BaseVisualComponent: NewBaseVisualComponent(grid.Window()),
+		BaseWindowComponent: NewBaseWindowComponent(grid.Window()),
 		rpc:                 rpc,
 		grid:                grid,
 	}
@@ -223,14 +223,7 @@ func (v *BreakpointsViewer) Render(_force bool) {
 	if dialogActive {
 		v.clearDialog.Render()
 	} else if inputActive {
-		w.Cursor(0, 0)
-		color := ColorText
-		if v.inputInvalid {
-			color = ColorInputInvalid
-		}
-		attr := color.Attr() | AttrReverse()
-		w.Print(st.InputBuffer, attr, false)
-		w.FillToEOL(' ', attr)
+		v.inputWidget.Render(false)
 	}
 }
 

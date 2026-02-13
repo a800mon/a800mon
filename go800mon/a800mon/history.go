@@ -9,7 +9,7 @@ import (
 )
 
 type HistoryViewer struct {
-	BaseVisualComponent
+	BaseWindowComponent
 	rpc          *RpcClient
 	grid         *GridWidget
 	reverseOrder bool
@@ -23,7 +23,7 @@ func NewHistoryViewer(rpc *RpcClient, window *Window, reverseOrder bool) *Histor
 	grid := NewGridWidget(window)
 	grid.SetGridColumnGap(0)
 	return &HistoryViewer{
-		BaseVisualComponent: NewBaseVisualComponent(grid.Window()),
+		BaseWindowComponent: NewBaseWindowComponent(grid.Window()),
 		rpc:                 rpc,
 		grid:                grid,
 		reverseOrder:        reverseOrder,

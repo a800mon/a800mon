@@ -2,7 +2,7 @@ import asyncio
 import curses
 
 from . import debug
-from .actions import ActionDispatcher, Actions, ShortcutInput
+from .actions import ActionDispatcher, Actions, ShortcutsComponent
 from .app import App, Component
 from .appstate import AppMode, shortcuts, state
 from .breakpoints import BreakpointsViewer
@@ -380,13 +380,13 @@ async def main(scr, socket_path):
         )
         shortcuts.add_global(action("q", "Quit", Actions.QUIT))
 
-    input_processor = ShortcutInput(shortcuts, dispatcher)
+    shortcuts_component = ShortcutsComponent(shortcuts, dispatcher)
     app.add_component(dispatcher)
     app.add_component(cpu)
     app.add_component(disassembly_view)
     app.add_component(watchers_view)
     app.add_component(breakpoints_view)
-    app.add_component(input_processor)
+    app.add_component(shortcuts_component)
     app.add_component(topbar)
     app.add_component(appmode_updater)
     app.add_component(breakpoints_window_updater)

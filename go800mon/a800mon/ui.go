@@ -79,7 +79,6 @@ type Window struct {
 	visible     bool
 	dirty       bool
 	screen      *Screen
-	parent      *C.WINDOW
 	outer       *C.WINDOW
 	inner       *C.WINDOW
 	tags        []windowTag
@@ -194,8 +193,7 @@ func (s *Screen) Size() (int, int) {
 }
 
 func (s *Screen) Add(window *Window) {
-	window.parent = s.scr
-	window.screen = s
+	window.attachScreen(s)
 	s.windows = append(s.windows, window)
 }
 
@@ -494,12 +492,17 @@ func (w *Window) SetTagActive(tagID string, active bool) {
 	w.redrawTitle()
 }
 
+func (w *Window) attachScreen(screen *Screen) {
+	w.screen = screen
+}
+
 func (w *Window) initialize() {
-	if w.parent == nil {
+	if w.screen == nil || w.screen.scr == nil {
 		return
 	}
+	parent := w.screen.scr
 	var ph, pw C.int
-	C.g_getmaxyx(w.parent, &ph, &pw)
+	C.g_getmaxyx(parent, &ph, &pw)
 	rw := min(int(pw)-w.x, w.w)
 	rh := min(int(ph)-w.y, w.h)
 	if rw < 1 {
@@ -517,11 +520,11 @@ func (w *Window) initialize() {
 		w.outer = nil
 	}
 	if w.border && rh >= 2 && rw >= 2 {
-		w.outer = C.subwin(w.parent, C.int(rh), C.int(rw), C.int(w.y), C.int(w.x))
+		w.outer = C.subwin(parent, C.int(rh), C.int(rw), C.int(w.y), C.int(w.x))
 		w.inner = C.derwin(w.outer, C.int(rh-2), C.int(rw-2), 1, 1)
 	} else {
 		w.outer = nil
-		w.inner = C.subwin(w.parent, C.int(rh), C.int(rw), C.int(w.y), C.int(w.x))
+		w.inner = C.subwin(parent, C.int(rh), C.int(rw), C.int(w.y), C.int(w.x))
 	}
 	var ih, iw C.int
 	C.g_getmaxyx(w.inner, &ih, &iw)

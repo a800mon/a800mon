@@ -1,6 +1,6 @@
 import enum
 
-from .app import Component, InputComponent, StopLoop
+from .app import Component, StopLoop
 from .appstate import AppMode, state, store
 from .rpc import Command, RpcException
 
@@ -32,6 +32,16 @@ class ActionDispatcher(Component):
         self._rpc = rpc
         self._rpc_queue = []
         self._after_rpc = None
+
+    async def update(self):
+        if not self._rpc_queue:
+            return False
+        queue, self._rpc_queue = self._rpc_queue, []
+        for cmd in queue:
+            await self._call_rpc(cmd)
+        if self._after_rpc is not None:
+            self._after_rpc()
+        return False
 
     async def _call_rpc(self, cmd):
         try:
@@ -113,16 +123,6 @@ class ActionDispatcher(Component):
         if action == Actions.QUIT:
             raise StopLoop
 
-    async def post_render(self):
-        if not self._rpc_queue:
-            return False
-        queue, self._rpc_queue = self._rpc_queue, []
-        for cmd in queue:
-            await self._call_rpc(cmd)
-        if self._after_rpc is not None:
-            self._after_rpc()
-        return False
-
     def update_status(self, status):
         store.set_status(
             status.paused, status.emu_ms, status.reset_ms, status.crashed, status.state_seq
@@ -157,7 +157,7 @@ class ActionDispatcher(Component):
         store.set_breakpoints_supported(enabled)
 
 
-class ShortcutInput(InputComponent):
+class ShortcutsComponent(Component):
     def __init__(self, shortcuts, dispatcher):
         self._shortcuts = shortcuts
         self._dispatcher = dispatcher

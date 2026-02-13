@@ -35,8 +35,7 @@ class Screen:
         return w, h
 
     def add(self, window):
-        window.add_to_parent(self.scr)
-        window._screen = self
+        window.add_to_parent(self)
         self.windows.append(window)
 
     def set_focus_order(self, windows):
@@ -125,20 +124,6 @@ class Screen:
         self.refresh()
         curses.doupdate()
 
-
-class Component:
-    def __init__(self):
-        self._dirty = True
-
-    def refresh(self):
-        self._do_refresh()
-
-    def refresh_if_dirty(self):
-        if self._dirty:
-            self.refresh()
-            self._dirty = False
-
-
 class Window:
     def __init__(self, x=0, y=0, w=1, h=1, title=None, border=True):
         self.x = x
@@ -172,23 +157,25 @@ class Window:
             return
         self._visible = new_val
 
-    def add_to_parent(self, parent):
-        if self.parent:
+    def add_to_parent(self, screen):
+        if self._screen:
             raise RuntimeError("Window already has parent")
-        self.parent = parent
+        self._screen = screen
+        self.parent = screen.scr
 
     def initialize(self):
-        if not self.parent:
+        if not self._screen:
             raise RuntimeError("Window has no parent!")
+        parent = self._screen.scr
 
-        ph, pw = self.parent.getmaxyx()
+        ph, pw = parent.getmaxyx()
         rw = min(pw - self.x, self.w)
         rh = min(ph - self.y, self.h)
         if self._border:
-            self.outer = self.parent.subwin(rh, rw, self.y, self.x)
+            self.outer = parent.subwin(rh, rw, self.y, self.x)
             self.inner = self.outer.derwin(rh - 2, rw - 2, 1, 1)
         else:
-            self.inner = self.parent.subwin(rh, rw, self.y, self.x)
+            self.inner = parent.subwin(rh, rw, self.y, self.x)
         self._ih, self._iw = self.inner.getmaxyx()
         self.redraw()
 

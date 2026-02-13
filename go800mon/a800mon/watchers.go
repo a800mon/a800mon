@@ -8,7 +8,7 @@ import (
 )
 
 type WatchersViewer struct {
-	BaseVisualComponent
+	BaseWindowComponent
 	rpc           *RpcClient
 	grid          *GridWidget
 	screen        *Screen
@@ -23,7 +23,7 @@ func NewWatchersViewer(rpc *RpcClient, window *Window) *WatchersViewer {
 	grid := NewGridWidget(window)
 	grid.SetGridColumnGap(0)
 	v := &WatchersViewer{
-		BaseVisualComponent: NewBaseVisualComponent(grid.Window()),
+		BaseWindowComponent: NewBaseWindowComponent(grid.Window()),
 		rpc:                 rpc,
 		grid:                grid,
 	}

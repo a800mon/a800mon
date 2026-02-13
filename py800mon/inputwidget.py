@@ -1,7 +1,7 @@
 import curses
 
 from .actions import Actions
-from .app import InputComponent, VisualComponent
+from .app import Component, VisualComponent
 from .appstate import state
 from .memory import parse_hex_u16
 from .ui import Color
@@ -132,7 +132,7 @@ class AddressInputWidget(InputWidget):
         self.window.cursor = (4, 0)
 
 
-class InputWidgetManager(InputComponent):
+class InputWidgetManager(Component):
     def __init__(self, dispatcher, rebuild_screen):
         self._dispatcher = dispatcher
         self._rebuild_screen = rebuild_screen

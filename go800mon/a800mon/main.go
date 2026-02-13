@@ -33,8 +33,8 @@ func (a *AppModeUpdater) Update(ctx context.Context) (bool, error) {
 	return false, nil
 }
 
-func (a *AppModeUpdater) HandleInput(ch int) bool              { return false }
-func (a *AppModeUpdater) PostRender(ctx context.Context) error { return nil }
+func (a *AppModeUpdater) HandleInput(ch int) bool { return false }
+func (a *AppModeUpdater) Render(force bool)       {}
 
 type BreakpointsWindowUpdater struct {
 	app         *App
@@ -66,8 +66,8 @@ func (u *BreakpointsWindowUpdater) Update(ctx context.Context) (bool, error) {
 	return true, nil
 }
 
-func (u *BreakpointsWindowUpdater) HandleInput(ch int) bool              { return false }
-func (u *BreakpointsWindowUpdater) PostRender(ctx context.Context) error { return nil }
+func (u *BreakpointsWindowUpdater) HandleInput(ch int) bool { return false }
+func (u *BreakpointsWindowUpdater) Render(force bool)       {}
 
 func RunMonitor(ctx context.Context, socketPath string) error {
 	screen := NewScreen(nil)
@@ -226,7 +226,7 @@ func RunMonitor(ctx context.Context, socketPath string) error {
 	breakpointsView.BindInput(screen, dispatcher)
 
 	buildShortcuts(dispatcher, screen, wdlist, whistory, wscreen, wwatch, wbreakpoints, wdisasm, app, disassemblyView)
-	inputProcessor := NewShortcutInput(shortcuts, dispatcher)
+	inputProcessor := NewShortcutsComponent(shortcuts, dispatcher)
 
 	app.AddComponent(dispatcher)
 	app.AddComponent(cpu)

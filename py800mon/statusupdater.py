@@ -1,6 +1,7 @@
 import asyncio
 import time
 
+from .app import EventType
 from .appstate import state
 from .datastructures import CpuState
 from .disasm import disasm_6502_one
@@ -34,7 +35,7 @@ class StatusUpdater:
         while True:
             await self._poll_once(force_cpu_refresh)
             force_cpu_refresh = False
-            await event_queue.put(("status", None))
+            await event_queue.put((EventType.STATUS, None))
             interval = (
                 self._error_interval
                 if state.last_rpc_error

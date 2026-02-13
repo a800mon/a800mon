@@ -2,19 +2,19 @@ package a800mon
 
 import "context"
 
-type ShortcutInput struct {
+type ShortcutsComponent struct {
 	shortcuts  *ShortcutManager
 	dispatcher *ActionDispatcher
 }
 
-func NewShortcutInput(shortcuts *ShortcutManager, dispatcher *ActionDispatcher) *ShortcutInput {
-	return &ShortcutInput{shortcuts: shortcuts, dispatcher: dispatcher}
+func NewShortcutsComponent(shortcuts *ShortcutManager, dispatcher *ActionDispatcher) *ShortcutsComponent {
+	return &ShortcutsComponent{shortcuts: shortcuts, dispatcher: dispatcher}
 }
 
-func (s *ShortcutInput) Update(ctx context.Context) (bool, error) { return false, nil }
-func (s *ShortcutInput) PostRender(ctx context.Context) error     { return nil }
+func (s *ShortcutsComponent) Update(ctx context.Context) (bool, error) { return false, nil }
+func (s *ShortcutsComponent) Render(force bool)                        {}
 
-func (s *ShortcutInput) HandleInput(ch int) bool {
+func (s *ShortcutsComponent) HandleInput(ch int) bool {
 	st := State()
 	if st.InputFocus {
 		return false

@@ -45,8 +45,25 @@ func NewActionDispatcher(rpc *RpcClient) *ActionDispatcher {
 	return &ActionDispatcher{rpc: rpc}
 }
 
-func (d *ActionDispatcher) Update(ctx context.Context) (bool, error) { return false, nil }
-func (d *ActionDispatcher) HandleInput(ch int) bool                  { return false }
+func (d *ActionDispatcher) Update(ctx context.Context) (bool, error) {
+	if d.stopLoop {
+		return false, StopLoop{}
+	}
+	if len(d.rpcQueue) == 0 {
+		return false, nil
+	}
+	queue := d.rpcQueue
+	d.rpcQueue = nil
+	for _, cmd := range queue {
+		_, _ = d.rpc.Call(ctx, cmd, nil)
+	}
+	if d.afterRPC != nil {
+		d.afterRPC()
+	}
+	return false, nil
+}
+func (d *ActionDispatcher) HandleInput(ch int) bool { return false }
+func (d *ActionDispatcher) Render(force bool)       {}
 
 func (d *ActionDispatcher) SetAfterRPC(cb func()) {
 	d.afterRPC = cb
@@ -199,24 +216,6 @@ func (d *ActionDispatcher) Dispatch(action Action, value any) error {
 		}
 	case ActionQuit:
 		d.stopLoop = true
-	}
-	return nil
-}
-
-func (d *ActionDispatcher) PostRender(ctx context.Context) error {
-	if d.stopLoop {
-		return StopLoop{}
-	}
-	if len(d.rpcQueue) == 0 {
-		return nil
-	}
-	queue := d.rpcQueue
-	d.rpcQueue = nil
-	for _, cmd := range queue {
-		_, _ = d.rpc.Call(ctx, cmd, nil)
-	}
-	if d.afterRPC != nil {
-		d.afterRPC()
 	}
 	return nil
 }
