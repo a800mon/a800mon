@@ -16,6 +16,7 @@ const (
 	ActionColdStart
 	ActionWarmStart
 	ActionTerminate
+	ActionToggleFreeze
 	ActionSetATASCII
 	ActionSetDisassembly
 	ActionSetDisassemblyAddr
@@ -95,6 +96,8 @@ func (d *ActionDispatcher) Dispatch(action Action, value any) error {
 	case ActionTerminate:
 		d.enqueue(CmdStopEmulator)
 		return d.Dispatch(ActionExitShutdown, nil)
+	case ActionToggleFreeze:
+		store.setUIFrozen(!st.UIFrozen)
 	case ActionSetATASCII:
 		v := false
 		if b, ok := value.(bool); ok {

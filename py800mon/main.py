@@ -359,6 +359,9 @@ async def main(scr, socket_path):
                 visible_in_global_bar=False,
             )
         )
+        shortcuts.add_global(
+            action(curses.KEY_F0 + 9, "Freeze", Actions.TOGGLE_FREEZE)
+        )
         shortcuts.add_global(action("q", "Quit", Actions.QUIT))
 
     input_processor = ShortcutInput(shortcuts, dispatcher)

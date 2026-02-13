@@ -27,6 +27,7 @@ type AppStateData struct {
 	LastRPCError         string
 	DListSelectedRegion  *int
 	ActiveMode           AppMode
+	UIFrozen             bool
 	DisplayListInspect   bool
 	UseATASCII           bool
 	DisassemblyEnabled   bool
@@ -315,6 +316,12 @@ func (s *StateStore) setActiveMode(mode AppMode) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.s.ActiveMode = mode
+}
+
+func (s *StateStore) setUIFrozen(enabled bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.s.UIFrozen = enabled
 }
 
 func (s *StateStore) setBreakpoints(enabled bool, clauses []BreakpointClauseRow) {

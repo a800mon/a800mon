@@ -32,6 +32,7 @@ class AppStateData:
     last_rpc_error: str | None
     dlist_selected_region: int | None
     active_mode: AppMode
+    ui_frozen: bool
     displaylist_inspect: bool
     use_atascii: bool
     disassembly_enabled: bool
@@ -60,6 +61,7 @@ _state = AppStateData(
     last_rpc_error=None,
     dlist_selected_region=None,
     active_mode=AppMode.NORMAL,
+    ui_frozen=False,
     displaylist_inspect=False,
     use_atascii=True,
     disassembly_enabled=True,
@@ -80,6 +82,9 @@ class StateStore:
 
     def set_active_mode(self, mode: AppMode):
         self._s.active_mode = mode
+
+    def set_ui_frozen(self, enabled: bool):
+        self._s.ui_frozen = bool(enabled)
 
     def set_displaylist_inspect(self, enabled: bool):
         self._s.displaylist_inspect = enabled

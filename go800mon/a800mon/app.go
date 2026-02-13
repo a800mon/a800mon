@@ -59,6 +59,7 @@ func (a *App) Loop(ctx context.Context) error {
 			return err
 		}
 		start := time.Now()
+		wasFrozen := State().UIFrozen
 		syncedResize := a.screen.SyncResize()
 		ch := a.screen.GetInputChar()
 		hadInput := false
@@ -81,6 +82,18 @@ func (a *App) Loop(ctx context.Context) error {
 			hadResize = true
 		}
 		if hadResize || resizedByKey {
+			store.setFrameTimeMS(int(time.Since(start).Milliseconds()))
+			continue
+		}
+		if State().UIFrozen {
+			if hadInput && !wasFrozen {
+				if err := a.renderComponents(true); err != nil {
+					if _, ok := err.(StopLoop); ok {
+						return nil
+					}
+					return err
+				}
+			}
 			store.setFrameTimeMS(int(time.Since(start).Milliseconds()))
 			continue
 		}

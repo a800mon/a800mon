@@ -17,6 +17,7 @@ class Actions(enum.Enum):
     COLDSTART = enum.auto()
     WARMSTART = enum.auto()
     TERMINATE = enum.auto()
+    TOGGLE_FREEZE = enum.auto()
     SET_ATASCII = enum.auto()
     SET_DISASSEMBLY = enum.auto()
     SET_DISASSEMBLY_ADDR = enum.auto()
@@ -87,6 +88,9 @@ class ActionDispatcher(Component):
         if action == Actions.TERMINATE:
             self._enqueue_rpc(Command.STOP_EMULATOR)
             self.dispatch(Actions.EXIT_SHUTDOWN)
+            return
+        if action == Actions.TOGGLE_FREEZE:
+            store.set_ui_frozen(not state.ui_frozen)
             return
         if action == Actions.SET_ATASCII:
             store.set_use_atascii(bool(value))

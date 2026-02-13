@@ -27,7 +27,7 @@ func NewTopBar(window *Window) *TopBar {
 
 func (t *TopBar) Update(_ctx context.Context) (bool, error) {
 	st := State()
-	snap := fmt.Sprintf("%s|%t|%d|%d|%d", st.LastRPCError, st.Crashed, st.EmuMS, st.ResetMS, st.MonitorFrameTimeMS)
+	snap := fmt.Sprintf("%s|%t|%d|%d|%d|%t", st.LastRPCError, st.Crashed, st.EmuMS, st.ResetMS, st.MonitorFrameTimeMS, st.UIFrozen)
 	if t.lastSnapshot == snap {
 		return false, nil
 	}
@@ -45,6 +45,10 @@ func (t *TopBar) Render(_force bool) {
 		w.FillToEOL(' ', ColorError.Attr())
 	} else {
 		w.Print(topbarTitle+"     "+topbarCopyright, ColorTopbar.Attr(), false)
+		if st.UIFrozen {
+			w.Print("   ", ColorTopbar.Attr(), false)
+			w.Print(" FREEZE ", ColorError.Attr(), false)
+		}
 		w.FillToEOL(' ', ColorTopbar.Attr())
 	}
 	start := w.Width() - topbarRightWidth

@@ -361,5 +361,6 @@ func buildShortcuts(dispatcher *ActionDispatcher, screen *Screen, wdlist, whisto
 	prevWindow := NewShortcut(KeyBackTab(), "Previous window", screen.FocusPrev)
 	prevWindow.VisibleInGlobalBar = false
 	_ = shortcuts.AddGlobal(prevWindow)
+	_ = shortcuts.AddGlobal(action(KeyF(9), "Freeze", ActionToggleFreeze))
 	_ = shortcuts.AddGlobal(action(int('q'), "Quit", ActionQuit))
 }

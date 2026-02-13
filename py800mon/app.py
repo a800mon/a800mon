@@ -3,7 +3,7 @@ import curses
 import time
 
 from . import debug
-from .appstate import store
+from .appstate import state, store
 
 
 class StopLoop(Exception):
@@ -86,9 +86,16 @@ class App:
             while True:
                 event_type, payload = await self._event_queue.get()
                 start_time = time.time()
+                was_frozen = state.ui_frozen
                 had_input = False
                 if event_type == "input":
                     had_input = self.handle_input(payload)
+                if state.ui_frozen:
+                    if event_type == "input" and had_input and not was_frozen:
+                        await self.render_components(force_redraw=True)
+                    time_diff = time.time() - start_time
+                    store.set_frame_time_ms(int(time_diff * 1000.0))
+                    continue
                 had_updates = await self.update_state()
                 await self.render_components(
                     force_redraw=had_input or had_updates
