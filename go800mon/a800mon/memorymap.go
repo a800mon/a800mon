@@ -1,11 +1,14 @@
 package a800mon
 
 import (
+	"regexp"
 	"strings"
 
 	"go800mon/internal/memory"
 	imap "go800mon/internal/memorymap"
 )
+
+var plainHexAddrRe = regexp.MustCompile(`^[0-9A-Fa-f]{1,4}$`)
 
 func LookupSymbol(addr uint16) string {
 	return imap.Lookup(addr)
@@ -23,6 +26,9 @@ func FindSymbolOrAddress(query string) (uint16, bool) {
 	q = strings.TrimPrefix(q, ";")
 	q = strings.TrimSpace(q)
 	if q == "" {
+		return 0, false
+	}
+	if !plainHexAddrRe.MatchString(q) {
 		return 0, false
 	}
 	addr, err := memory.ParseHex(q)
