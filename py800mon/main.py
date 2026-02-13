@@ -298,13 +298,11 @@ async def main(scr, socket_path):
                 wdisasm.visible = True
                 app.rebuild_screen()
                 screen.focus(wdisasm)
-            elif screen.focused is not wdisasm:
-                screen.focus(wdisasm)
+                return
+            if screen.focused is wdisasm:
+                screen.focus(None)
             else:
-                screen.focus(wdlist if state.displaylist_inspect else None)
-                dispatcher.dispatch(Actions.SET_DISASSEMBLY, False)
-                wdisasm.visible = False
-                app.rebuild_screen()
+                screen.focus(wdisasm)
 
         def focus_watchers():
             if screen.focused is wwatch:
@@ -320,10 +318,20 @@ async def main(scr, socket_path):
             else:
                 screen.focus(wbreakpoints)
 
+        def add_window_hotkey(window, key, label, callback):
+            shortcut = Shortcut(
+                key,
+                label,
+                callback,
+                visible_in_global_bar=False,
+            )
+            shortcuts.add_global(shortcut)
+            window.set_hotkey_label(shortcut.key_as_text())
+
         shortcuts.add_global(Shortcut("s", "Toggle DLIST", toggle_dlist))
-        shortcuts.add_global(Shortcut("W", "Watchers", focus_watchers))
-        shortcuts.add_global(Shortcut("B", "Breakpoints", focus_breakpoints))
-        shortcuts.add_global(Shortcut("d", "Disassembly", toggle_disassembly))
+        add_window_hotkey(wwatch, "w", "Watchers", focus_watchers)
+        add_window_hotkey(wbreakpoints, "b", "Breakpoints", focus_breakpoints)
+        add_window_hotkey(wdisasm, "d", "Disassembly", toggle_disassembly)
         shortcuts.add_global(
             Shortcut(
                 9,

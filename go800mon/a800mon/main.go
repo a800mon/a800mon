@@ -303,17 +303,12 @@ func buildShortcuts(dispatcher *ActionDispatcher, screen *Screen, wdlist, wwatch
 			wdisasm.SetVisible(true)
 			app.RebuildScreen()
 			screen.Focus(wdisasm)
-		} else if screen.Focused() != wdisasm {
-			screen.Focus(wdisasm)
+			return
+		}
+		if screen.Focused() == wdisasm {
+			screen.Focus(nil)
 		} else {
-			if st.DisplayListInspect {
-				screen.Focus(wdlist)
-			} else {
-				screen.Focus(nil)
-			}
-			_ = dispatcher.Dispatch(ActionSetDisassembly, false)
-			wdisasm.SetVisible(false)
-			app.RebuildScreen()
+			screen.Focus(wdisasm)
 		}
 	}
 	focusWatchers := func() {
@@ -334,10 +329,17 @@ func buildShortcuts(dispatcher *ActionDispatcher, screen *Screen, wdlist, wwatch
 		screen.Focus(wbreakpoints)
 	}
 
+	addWindowHotkey := func(window *Window, key int, label string, callback func()) {
+		shortcut := NewShortcut(key, label, callback)
+		shortcut.VisibleInGlobalBar = false
+		_ = shortcuts.AddGlobal(shortcut)
+		window.SetHotkeyLabel(shortcut.KeyAsText())
+	}
+
 	_ = shortcuts.AddGlobal(NewShortcut(int('s'), "Toggle DLIST", toggleDList))
-	_ = shortcuts.AddGlobal(NewShortcut(int('W'), "Watchers", focusWatchers))
-	_ = shortcuts.AddGlobal(NewShortcut(int('B'), "Breakpoints", focusBreakpoints))
-	_ = shortcuts.AddGlobal(NewShortcut(int('d'), "Disassembly", toggleDisasm))
+	addWindowHotkey(wwatch, int('w'), "Watchers", focusWatchers)
+	addWindowHotkey(wbreakpoints, int('b'), "Breakpoints", focusBreakpoints)
+	addWindowHotkey(wdisasm, int('d'), "Disassembly", toggleDisasm)
 	_ = shortcuts.AddGlobal(NewShortcut(9, "ATASCII/ASCII", func() {
 		st := State()
 		_ = dispatcher.Dispatch(ActionSetATASCII, !st.UseATASCII)

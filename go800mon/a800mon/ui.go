@@ -68,20 +68,21 @@ type Screen struct {
 }
 
 type Window struct {
-	x, y, w, h int
-	iw, ih     int
-	title      string
-	border     bool
-	visible    bool
-	dirty      bool
-	screen     *Screen
-	parent     *C.WINDOW
-	outer      *C.WINDOW
-	inner      *C.WINDOW
-	tags       []windowTag
-	tagsByID   map[string]int
-	onFocus    func()
-	onBlur     func()
+	x, y, w, h  int
+	iw, ih      int
+	title       string
+	hotkeyLabel string
+	border      bool
+	visible     bool
+	dirty       bool
+	screen      *Screen
+	parent      *C.WINDOW
+	outer       *C.WINDOW
+	inner       *C.WINDOW
+	tags        []windowTag
+	tagsByID    map[string]int
+	onFocus     func()
+	onBlur      func()
 }
 
 type windowTag struct {
@@ -274,6 +275,15 @@ func (w *Window) SetTitle(title string) {
 	w.redrawTitle()
 }
 
+func (w *Window) SetHotkeyLabel(label string) {
+	text := strings.TrimSpace(label)
+	if w.hotkeyLabel == text {
+		return
+	}
+	w.hotkeyLabel = text
+	w.redrawTitle()
+}
+
 func (w *Window) AddTag(label, tagID string, active bool) {
 	if tagID == "" {
 		tagID = label
@@ -375,18 +385,36 @@ func (w *Window) drawTitleAndTags(baseAttr int) {
 	if w.outer == nil {
 		return
 	}
+	var h, ww C.int
+	C.g_getmaxyx(w.outer, &h, &ww)
+	width := int(ww)
+	leftX := 2
+	if w.hotkeyLabel != "" && width > 2 {
+		hotkey := "[ " + w.hotkeyLabel + " ]"
+		maxHotkey := max(0, width-3)
+		if maxHotkey > 0 {
+			hotkey = cutTo(hotkey, maxHotkey)
+			cw := C.CString(hotkey)
+			C.g_mvwaddnstr_attr(w.outer, 0, 1, cw, C.int(len(hotkey)), C.int(baseAttr))
+			C.free(unsafe.Pointer(cw))
+			leftX = 1 + runeLen(hotkey) + 1
+		}
+	}
 	if w.title != "" {
-		t := " " + cutTo(w.title, max(0, w.iw-6)) + " "
-		cw := C.CString(t)
-		C.g_mvwaddnstr_attr(w.outer, 0, 2, cw, C.int(len(t)), C.int(baseAttr))
-		C.free(unsafe.Pointer(cw))
+		if leftX < width-1 {
+			maxTitle := max(0, width-1-leftX)
+			if maxTitle > 0 {
+				title := cutTo(" "+w.title+" ", maxTitle)
+				cw := C.CString(title)
+				C.g_mvwaddnstr_attr(w.outer, 0, C.int(leftX), cw, C.int(len(title)), C.int(baseAttr))
+				C.free(unsafe.Pointer(cw))
+			}
+		}
 	}
 	if len(w.tags) == 0 {
 		return
 	}
-	var h, ww C.int
-	C.g_getmaxyx(w.outer, &h, &ww)
-	x := int(ww) - 3
+	x := width - 3
 	for i := len(w.tags) - 1; i >= 0; i-- {
 		tag := w.tags[i]
 		label := " " + strings.TrimSpace(tag.label) + " "

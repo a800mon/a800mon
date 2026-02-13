@@ -115,6 +115,7 @@ class Window:
         self.on_blur = None
         self._tags = []
         self._tags_by_id = {}
+        self._hotkey_label = None
         self.outer = None
         self.inner = None
 
@@ -199,6 +200,14 @@ class Window:
         self.title = title
         self.redraw_title()
 
+    def set_hotkey_label(self, label: str | None):
+        text = str(label).strip() if label is not None else ""
+        value = text if text else None
+        if value == self._hotkey_label:
+            return
+        self._hotkey_label = value
+        self.redraw_title()
+
     def redraw_title(self):
         if not self._border or self.outer is None:
             self._dirty = True
@@ -242,13 +251,23 @@ class Window:
         return focus_attr
 
     def _draw_title_and_tags(self, base_attr):
-        if self.title:
-            self.outer.addstr(
-                0, 2, f" {self.title[: self._iw - 6]} ", base_attr)
+        _h, w = self.outer.getmaxyx()
+        left_x = 2
+        if self._hotkey_label:
+            hotkey = f"[ {self._hotkey_label} ]"
+            max_hotkey = max(0, w - 3)
+            if max_hotkey > 0:
+                hotkey = hotkey[:max_hotkey]
+                self.outer.addstr(0, 1, hotkey, base_attr)
+                left_x = 1 + len(hotkey) + 1
+        if self.title and left_x < w - 1:
+            title = f" {self.title} "
+            max_title = max(0, w - 1 - left_x)
+            if max_title > 0:
+                self.outer.addstr(0, left_x, title[:max_title], base_attr)
         if not self._tags:
             return
 
-        _h, w = self.outer.getmaxyx()
         x = w - 1 - 2  # keep two chars from the right border
         for tag in reversed(self._tags):
             label = f" {str(tag['label']).strip()} "

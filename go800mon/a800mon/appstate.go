@@ -93,7 +93,7 @@ func newStateStore() *StateStore {
 		s: AppStateData{
 			ActiveMode:         AppModeNormal,
 			UseATASCII:         true,
-			DisassemblyEnabled: false,
+			DisassemblyEnabled: true,
 		},
 	}
 }
