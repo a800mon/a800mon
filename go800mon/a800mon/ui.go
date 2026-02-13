@@ -63,11 +63,13 @@ import (
 type Screen struct {
 	scr               *C.WINDOW
 	windows           []*Window
+	windowInput       map[*Window]func(int) bool
 	focusOrder        []*Window
 	layoutInitializer func(*Screen)
 	initialized       bool
 	focused           *Window
 	focusIndex        int
+	inputHandler      func(int) bool
 }
 
 type Window struct {
@@ -166,7 +168,11 @@ const (
 )
 
 func NewScreen(layoutInitializer func(*Screen)) *Screen {
-	return &Screen{layoutInitializer: layoutInitializer, focusIndex: -1}
+	return &Screen{
+		layoutInitializer: layoutInitializer,
+		focusIndex:        -1,
+		windowInput:       map[*Window]func(int) bool{},
+	}
 }
 
 func (s *Screen) Initialize() {
@@ -205,6 +211,14 @@ func (s *Screen) Size() (int, int) {
 func (s *Screen) Add(window *Window) {
 	window.attachScreen(s)
 	s.windows = append(s.windows, window)
+}
+
+func (s *Screen) SetWindowInputHandler(window *Window, handler func(int) bool) {
+	if handler == nil {
+		delete(s.windowInput, window)
+		return
+	}
+	s.windowInput[window] = handler
 }
 
 func (s *Screen) SetFocusOrder(windows ...*Window) {
@@ -294,6 +308,28 @@ func (s *Screen) focusCycleWindows() []*Window {
 
 func (s *Screen) Focused() *Window {
 	return s.focused
+}
+
+func (s *Screen) SetInputFocus(handler func(int) bool) {
+	s.inputHandler = handler
+}
+
+func (s *Screen) HasInputFocus() bool {
+	return s.inputHandler != nil
+}
+
+func (s *Screen) HandleInput(ch int) bool {
+	if s.inputHandler == nil {
+		if s.focused == nil {
+			return false
+		}
+		handler := s.windowInput[s.focused]
+		if handler == nil {
+			return false
+		}
+		return handler(ch)
+	}
+	return s.inputHandler(ch)
 }
 
 func (s *Screen) SetInputTimeoutMS(timeoutMS int) {

@@ -53,6 +53,7 @@ class App:
         self.screen = screen
         self.dispatcher = dispatcher
         self._components = []
+        self._input_components = []
         self._visual_components = []
         self._event_queue = asyncio.Queue()
         self._status_updater = status_updater
@@ -63,7 +64,13 @@ class App:
         self._components.append(component)
         if isinstance(component, VisualComponent):
             self._screen.add(component.window)
+            self._screen.set_window_input_handler(
+                component.window,
+                component.handle_input,
+            )
             self._visual_components.append(component)
+            return
+        self._input_components.append(component)
 
     def dispatch_action(self, action, value=None):
         self.dispatcher.dispatch(action, value)
@@ -140,7 +147,9 @@ class App:
             return True
         if self._screen.has_input_focus():
             return self._screen.handle_input(ch)
-        for component in self._components:
+        if self._screen.handle_input(ch):
+            return True
+        for component in self._input_components:
             if component.handle_input(ch):
                 return True
         return False

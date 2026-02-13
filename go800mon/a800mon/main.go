@@ -86,7 +86,7 @@ func RunMonitor(ctx context.Context, socketPath string) error {
 			}
 		}
 	}
-	dispatcher.updateBreakpointsSupported(supportsBreakpoints)
+	_ = dispatcher.Dispatch(ActionSetBreakpointsSupported, supportsBreakpoints)
 
 	wcpu := NewWindow("CPU State", true)
 	wdlist := NewWindow("DisplayList", true)
@@ -216,16 +216,13 @@ func RunMonitor(ctx context.Context, socketPath string) error {
 		bottom.Reshape(0, h-1, w, 1)
 	}
 	screen.layoutInitializer = layout
+	dispatcher.SetInputFocusHandler(screen.SetInputFocus)
 
 	app := NewApp(screen, dispatcher, statusUpdater, 20)
 	breakpointsWindowUpdater := NewBreakpointsWindowUpdater(app, screen, wbreakpoints)
-	disassemblyView.BindInput(screen, dispatcher)
-	screenInspector.BindInput(screen)
-	watchersView.BindInput(screen, dispatcher)
-	breakpointsView.BindInput(screen, dispatcher)
 
 	buildShortcuts(dispatcher, screen, wdlist, whistory, wscreen, wwatch, wbreakpoints, wdisasm, app, disassemblyView)
-	inputProcessor := NewShortcutsComponent(shortcuts, dispatcher)
+	inputProcessor := NewShortcutsComponent(shortcuts)
 
 	app.AddComponent(dispatcher)
 	app.AddComponent(cpu)

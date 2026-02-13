@@ -59,8 +59,6 @@ type BreakpointsViewer struct {
 	BaseWindowComponent
 	rpc              *RpcClient
 	grid             *GridWidget
-	screen           *Screen
-	dispatcher       *ActionDispatcher
 	enabled          bool
 	clauses          []BreakpointClauseRow
 	lastSnapshot     string
@@ -79,6 +77,7 @@ type BreakpointsViewer struct {
 	refreshRequested bool
 	clearDialog      *DialogWidget
 	inputWidget      *InputWidget
+	inputActive      bool
 }
 
 func NewBreakpointsViewer(rpc *RpcClient, window *Window) *BreakpointsViewer {
@@ -95,11 +94,6 @@ func NewBreakpointsViewer(rpc *RpcClient, window *Window) *BreakpointsViewer {
 	v.inputWidget = NewInputWidget(grid.Window())
 	v.inputWidget.SetOnChange(v.onInputChange)
 	return v
-}
-
-func (v *BreakpointsViewer) BindInput(screen *Screen, dispatcher *ActionDispatcher) {
-	v.screen = screen
-	v.dispatcher = dispatcher
 }
 
 func (v *BreakpointsViewer) Update(ctx context.Context) (bool, error) {
@@ -182,7 +176,6 @@ func (v *BreakpointsViewer) Update(ctx context.Context) (bool, error) {
 }
 
 func (v *BreakpointsViewer) Render(_force bool) {
-	st := State()
 	w := v.Window()
 	g := v.grid
 	ih := w.Height()
@@ -190,7 +183,7 @@ func (v *BreakpointsViewer) Render(_force bool) {
 		return
 	}
 	dialogActive := v.clearDialog != nil && v.clearDialog.Active()
-	inputActive := st.InputFocus && st.InputTarget == "breakpoints"
+	inputActive := v.inputActive
 	rowBase := 0
 	if inputActive || dialogActive {
 		rowBase = 1
@@ -229,25 +222,12 @@ func (v *BreakpointsViewer) Render(_force bool) {
 }
 
 func (v *BreakpointsViewer) HandleInput(ch int) bool {
-	st := State()
-	if v.screen == nil {
-		return false
-	}
 	if v.clearDialog != nil && v.clearDialog.Active() {
 		result := v.clearDialog.HandleInput(ch)
 		if result == DialogInputConfirm {
 			v.pendingClear = true
 		}
 		return !(result == DialogInputNone)
-	}
-	if st.InputFocus {
-		if st.InputTarget != "breakpoints" {
-			return false
-		}
-		return v.handleTextInput(ch)
-	}
-	if v.screen.Focused() != v.Window() {
-		return false
 	}
 	if ch == int('/') {
 		v.openInput("")
@@ -323,31 +303,28 @@ func (v *BreakpointsViewer) queueDeleteSelected() {
 }
 
 func (v *BreakpointsViewer) openInput(initial string) {
-	if v.dispatcher == nil {
-		return
-	}
 	v.inputSnapshot = initial
 	v.inputInvalid = false
 	v.parsedClauses = nil
 	v.hasParsedClauses = false
+	v.inputActive = true
 	v.inputWidget.Activate(initial)
 	v.inputWidget.SetInvalid(false)
-	_ = v.dispatcher.Dispatch(ActionSetInputBuffer, v.inputWidget.Buffer())
-	_ = v.dispatcher.Dispatch(ActionSetInputTarget, "breakpoints")
-	_ = v.dispatcher.Dispatch(ActionSetInputFocus, true)
+	if app := v.App(); app != nil {
+		app.DispatchAction(ActionSetInputFocus, v.handleTextInput)
+	}
 }
 
 func (v *BreakpointsViewer) closeInput() {
-	if v.dispatcher == nil {
-		return
-	}
 	v.inputInvalid = false
 	v.parsedClauses = nil
 	v.hasParsedClauses = false
+	v.inputActive = false
 	v.inputWidget.SetInvalid(false)
 	v.inputWidget.Deactivate()
-	_ = v.dispatcher.Dispatch(ActionSetInputFocus, false)
-	_ = v.dispatcher.Dispatch(ActionSetInputTarget, "")
+	if app := v.App(); app != nil {
+		app.DispatchAction(ActionSetInputFocus, nil)
+	}
 }
 
 func (v *BreakpointsViewer) onInputChange(text string) {
@@ -374,12 +351,8 @@ func (v *BreakpointsViewer) onInputChange(text string) {
 }
 
 func (v *BreakpointsViewer) handleTextInput(ch int) bool {
-	if v.dispatcher == nil {
-		return false
-	}
 	if ch == 27 {
 		_ = v.inputWidget.SetBuffer(v.inputSnapshot)
-		_ = v.dispatcher.Dispatch(ActionSetInputBuffer, v.inputSnapshot)
 		v.closeInput()
 		return true
 	}
@@ -395,15 +368,10 @@ func (v *BreakpointsViewer) handleTextInput(ch int) bool {
 		return true
 	}
 	if ch == KeyBackspace() || ch == 127 || ch == 8 {
-		if v.inputWidget.Backspace() {
-			_ = v.dispatcher.Dispatch(ActionSetInputBuffer, v.inputWidget.Buffer())
-		}
+		v.inputWidget.Backspace()
 		return true
 	}
-	if v.inputWidget.AppendChar(ch) {
-		_ = v.dispatcher.Dispatch(ActionSetInputBuffer, v.inputWidget.Buffer())
-		return true
-	}
+	v.inputWidget.AppendChar(ch)
 	return true
 }
 

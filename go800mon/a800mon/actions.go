@@ -1,6 +1,10 @@
 package a800mon
 
-import "context"
+import (
+	"context"
+
+	"go800mon/internal/displaylist"
+)
 
 type Action int
 
@@ -20,25 +24,46 @@ const (
 	ActionSetATASCII
 	ActionSetDisassembly
 	ActionSetDisassemblyAddr
+	ActionSetBreakpointsSupported
+	ActionSetStatus
+	ActionSetLastRPCError
+	ActionSetCPU
+	ActionSetHistory
+	ActionSetDisassemblyRows
+	ActionSetDList
+	ActionSetDMACTL
+	ActionSetFrameTimeMS
 	ActionSetInputFocus
-	ActionSetInputTarget
-	ActionSetInputBuffer
 	ActionQuit
 )
+
+type CPUUpdate struct {
+	CPU    CPUState
+	Disasm string
+}
+
+type DListUpdate struct {
+	DList  displaylist.DisplayList
+	DMACTL byte
+}
 
 type StopLoop struct{}
 
 func (s StopLoop) Error() string { return "stop loop" }
 
 type ActionDispatcher struct {
-	rpc      *RpcClient
-	rpcQueue []Command
-	rpcFlushed bool
-	stopLoop bool
+	rpc           *RpcClient
+	rpcQueue      []Command
+	rpcFlushed    bool
+	stopLoop      bool
+	setInputFocus func(func(int) bool)
 }
 
 func NewActionDispatcher(rpc *RpcClient) *ActionDispatcher {
-	return &ActionDispatcher{rpc: rpc}
+	return &ActionDispatcher{
+		rpc:           rpc,
+		setInputFocus: func(func(int) bool) {},
+	}
 }
 
 func (d *ActionDispatcher) Update(ctx context.Context) (bool, error) {
@@ -67,6 +92,14 @@ func (d *ActionDispatcher) TakeRPCFlushed() bool {
 
 func (d *ActionDispatcher) enqueue(cmd Command) {
 	d.rpcQueue = append(d.rpcQueue, cmd)
+}
+
+func (d *ActionDispatcher) SetInputFocusHandler(callback func(func(int) bool)) {
+	if callback == nil {
+		d.setInputFocus = func(func(int) bool) {}
+		return
+	}
+	d.setInputFocus = callback
 }
 
 func (d *ActionDispatcher) Dispatch(action Action, value any) error {
@@ -127,40 +160,62 @@ func (d *ActionDispatcher) Dispatch(action Action, value any) error {
 		if v, ok := value.(uint16); ok {
 			store.setDisassemblyAddr(&v)
 		}
-	case ActionSetInputFocus:
+	case ActionSetBreakpointsSupported:
 		v := false
 		if b, ok := value.(bool); ok {
 			v = b
 		}
-		store.setInputFocus(v)
-	case ActionSetInputTarget:
-		if text, ok := value.(string); ok {
-			store.setInputTarget(text)
-		} else {
-			store.setInputTarget("")
+		store.setBreakpointsSupported(v)
+	case ActionSetStatus:
+		if status, ok := value.(Status); ok {
+			store.setStatus(
+				status.Paused,
+				status.EmuMS,
+				status.ResetMS,
+				status.Crashed,
+				status.StateSeq,
+			)
 		}
-	case ActionSetInputBuffer:
+	case ActionSetLastRPCError:
 		if text, ok := value.(string); ok {
-			store.setInputBuffer(text)
+			store.setLastRPCError(text)
+		} else {
+			store.setLastRPCError("")
+		}
+	case ActionSetCPU:
+		if update, ok := value.(CPUUpdate); ok {
+			store.setCPU(update.CPU, update.Disasm)
+		}
+	case ActionSetHistory:
+		if rows, ok := value.([]CpuHistoryEntry); ok {
+			store.setHistory(rows)
+		}
+	case ActionSetDisassemblyRows:
+		if rows, ok := value.([]DisasmRow); ok {
+			store.setDisassemblyRows(rows)
+		}
+	case ActionSetDList:
+		if update, ok := value.(DListUpdate); ok {
+			store.setDList(update.DList, update.DMACTL)
+		}
+	case ActionSetDMACTL:
+		if dmactl, ok := value.(byte); ok {
+			store.setDList(st.DList, dmactl)
+		}
+	case ActionSetFrameTimeMS:
+		if ms, ok := value.(int); ok {
+			store.setFrameTimeMS(ms)
+		}
+	case ActionSetInputFocus:
+		if value == nil {
+			d.setInputFocus(nil)
+			return nil
+		}
+		if handler, ok := value.(func(int) bool); ok {
+			d.setInputFocus(handler)
 		}
 	case ActionQuit:
 		d.stopLoop = true
 	}
 	return nil
-}
-
-func (d *ActionDispatcher) updateStatus(status Status) {
-	store.setStatus(status.Paused, status.EmuMS, status.ResetMS, status.Crashed, status.StateSeq)
-}
-
-func (d *ActionDispatcher) updateLastRPCError(text string) {
-	store.setLastRPCError(text)
-}
-
-func (d *ActionDispatcher) updateCPU(cpu CPUState, dis string) {
-	store.setCPU(cpu, dis)
-}
-
-func (d *ActionDispatcher) updateBreakpointsSupported(enabled bool) {
-	store.setBreakpointsSupported(enabled)
 }

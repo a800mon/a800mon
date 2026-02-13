@@ -45,14 +45,13 @@ func NewHistoryViewer(rpc *RpcClient, window *Window, reverseOrder bool) *Histor
 }
 
 func (h *HistoryViewer) Update(ctx context.Context) (bool, error) {
-	if State().InputFocus {
-		return false, nil
-	}
 	entries, err := h.rpc.History(ctx)
 	if err != nil {
 		return false, nil
 	}
-	store.setHistory(entries)
+	if app := h.App(); app != nil {
+		app.DispatchAction(ActionSetHistory, entries)
+	}
 	st := State()
 	if code, err := h.rpc.ReadMemory(ctx, st.CPU.PC, 3); err == nil {
 		if ins := disasm.DecodeOne(st.CPU.PC, code); ins != nil {
@@ -114,13 +113,6 @@ func (h *HistoryViewer) Render(_force bool) {
 }
 
 func (h *HistoryViewer) HandleInput(ch int) bool {
-	if State().InputFocus {
-		return false
-	}
-	w := h.Window()
-	if w == nil || w.screen == nil || w.screen.Focused() != w {
-		return false
-	}
 	if !h.grid.HandleInput(ch) {
 		return false
 	}

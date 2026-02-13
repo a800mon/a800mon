@@ -33,7 +33,7 @@ func (i *InputWidget) Render(_force bool) {
 		color = ColorInputInvalid
 	}
 	attr := color.Attr() | AttrReverse()
-	text := State().InputBuffer
+	text := i.buffer
 	w.Print(text, attr, false)
 	w.FillToEOL(' ', attr)
 	cursorX := len([]rune(text))
@@ -189,7 +189,7 @@ func (a *AddressInputWidget) Render(_force bool) {
 		color = ColorInputInvalid
 	}
 	attr := color.Attr() | AttrReverse()
-	text := addressInputDisplayText(State().InputBuffer)
+	text := addressInputDisplayText(a.buffer)
 	w.Print(text, attr, false)
 	w.FillToEOL(' ', attr)
 	w.Cursor(4, 0)

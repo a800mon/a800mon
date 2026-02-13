@@ -261,8 +261,6 @@ class BreakpointsViewer(VisualRpcComponent):
             if result == DialogInput.CONFIRM:
                 self._pending_clear = True
             return not result == DialogInput.NONE
-        if self.app.screen.focused is not self.window:
-            return False
         if ch == ord("/"):
             self._open_input("")
             return True

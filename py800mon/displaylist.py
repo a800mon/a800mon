@@ -229,7 +229,4 @@ class DisplayListViewer(VisualRpcComponent):
         self.grid.render()
 
     def handle_input(self, ch):
-        if self.app.screen.focused is not self.window:
-            return False
-
         return self.grid.handle_input(ch)

@@ -16,7 +16,6 @@ type ScreenBufferInspector struct {
 	BaseWindowComponent
 	rpc            *RpcClient
 	grid           *GridWidget
-	screen         *Screen
 	rows           []ScreenRow
 	lastUseATASCII bool
 	lastSnapshot   string
@@ -44,28 +43,18 @@ func NewScreenBufferInspector(rpc *RpcClient, window *Window) *ScreenBufferInspe
 	}
 }
 
-func (s *ScreenBufferInspector) BindInput(screen *Screen) {
-	s.screen = screen
-}
-
 func (s *ScreenBufferInspector) HandleInput(ch int) bool {
-	if State().InputFocus {
-		return false
-	}
-	if s.screen == nil || !(s.screen.Focused() == s.Window()) {
-		return false
-	}
 	if !(ch == int(' ') || ch == int('a') || ch == int('A')) {
 		return s.grid.HandleInput(ch)
 	}
-	store.setUseATASCII(!State().UseATASCII)
+	st := State()
+	if app := s.App(); app != nil {
+		app.DispatchAction(ActionSetATASCII, !st.UseATASCII)
+	}
 	return true
 }
 
 func (s *ScreenBufferInspector) Update(ctx context.Context) (bool, error) {
-	if State().InputFocus {
-		return false, nil
-	}
 	now := time.Now()
 	if now.Before(s.nextRPCAt) {
 		return false, nil

@@ -104,8 +104,6 @@ class ScreenBufferInspector(VisualRpcComponent):
         return self._inspect
 
     def handle_input(self, ch):
-        if self.app.screen.focused is not self.window:
-            return False
         if ch in (ord(" "), ord("a"), ord("A")):
             self.app.dispatch_action(Actions.SET_ATASCII, not state.use_atascii)
             return True

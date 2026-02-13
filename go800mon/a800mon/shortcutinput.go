@@ -3,12 +3,11 @@ package a800mon
 import "context"
 
 type ShortcutsComponent struct {
-	shortcuts  *ShortcutManager
-	dispatcher *ActionDispatcher
+	shortcuts *ShortcutManager
 }
 
-func NewShortcutsComponent(shortcuts *ShortcutManager, dispatcher *ActionDispatcher) *ShortcutsComponent {
-	return &ShortcutsComponent{shortcuts: shortcuts, dispatcher: dispatcher}
+func NewShortcutsComponent(shortcuts *ShortcutManager) *ShortcutsComponent {
+	return &ShortcutsComponent{shortcuts: shortcuts}
 }
 
 func (s *ShortcutsComponent) Update(ctx context.Context) (bool, error) { return false, nil }
@@ -16,9 +15,6 @@ func (s *ShortcutsComponent) Render(force bool)                        {}
 
 func (s *ShortcutsComponent) HandleInput(ch int) bool {
 	st := State()
-	if st.InputFocus {
-		return false
-	}
 	layer := s.shortcuts.Get(st.ActiveMode)
 	if layer != nil {
 		if shortcut, ok := layer.Get(ch); ok {

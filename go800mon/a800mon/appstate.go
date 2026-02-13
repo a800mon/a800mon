@@ -30,9 +30,6 @@ type AppStateData struct {
 	UseATASCII           bool
 	DisassemblyEnabled   bool
 	DisassemblyAddr      *uint16
-	InputFocus           bool
-	InputTarget          string
-	InputBuffer          string
 	DMACTL               byte
 	History              []CpuHistoryEntry
 	DisassemblyRows      []DisasmRow
@@ -181,24 +178,6 @@ func (s *StateStore) setDisassemblyAddr(addr *uint16) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.s.DisassemblyAddr = addr
-}
-
-func (s *StateStore) setInputFocus(enabled bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.s.InputFocus = enabled
-}
-
-func (s *StateStore) setInputTarget(target string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.s.InputTarget = target
-}
-
-func (s *StateStore) setInputBuffer(text string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.s.InputBuffer = text
 }
 
 func (s *StateStore) setActiveMode(mode AppMode) {

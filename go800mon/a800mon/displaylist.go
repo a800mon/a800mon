@@ -36,9 +36,6 @@ func NewDisplayListViewer(rpc *RpcClient, window *Window) *DisplayListViewer {
 }
 
 func (v *DisplayListViewer) Update(ctx context.Context) (bool, error) {
-	if State().InputFocus {
-		return false, nil
-	}
 	startAddr, err := v.rpc.ReadVector(ctx, DLPTRSAddr)
 	if err != nil {
 		return false, nil
@@ -57,7 +54,12 @@ func (v *DisplayListViewer) Update(ctx context.Context) (bool, error) {
 		}
 	}
 	dlist := DecodeDisplayList(startAddr, dump)
-	store.setDList(dlist, dmactl)
+	if app := v.App(); app != nil {
+		app.DispatchAction(
+			ActionSetDList,
+			DListUpdate{DList: dlist, DMACTL: dmactl},
+		)
+	}
 	snapshot := fmt.Sprintf("%04X|%02X|%d", startAddr, dmactl, len(dlist.Entries))
 	if len(dlist.Entries) > 0 {
 		first := dlist.Entries[0]
@@ -96,12 +98,5 @@ func (v *DisplayListViewer) Render(_force bool) {
 }
 
 func (v *DisplayListViewer) HandleInput(ch int) bool {
-	if State().InputFocus {
-		return false
-	}
-	w := v.Window()
-	if w.screen == nil || w.screen.Focused() != w {
-		return false
-	}
 	return v.grid.HandleInput(ch)
 }

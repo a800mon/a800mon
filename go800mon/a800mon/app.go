@@ -20,6 +20,7 @@ type App struct {
 	screen         *Screen
 	dispatcher     *ActionDispatcher
 	components     []Component
+	input          []Component
 	visual         []VisualComponent
 	statusUpdater  *StatusUpdater
 	inputTimeoutMS int
@@ -35,11 +36,24 @@ func NewApp(screen *Screen, dispatcher *ActionDispatcher, updater *StatusUpdater
 }
 
 func (a *App) AddComponent(c Component) {
+	if aware, ok := c.(interface{ setApp(*App) }); ok {
+		aware.setApp(a)
+	}
 	a.components = append(a.components, c)
 	if v, ok := c.(VisualComponent); ok {
 		a.visual = append(a.visual, v)
 		a.screen.Add(v.Window())
+		a.screen.SetWindowInputHandler(v.Window(), v.HandleInput)
+		return
 	}
+	a.input = append(a.input, c)
+}
+
+func (a *App) DispatchAction(action Action, value any) {
+	if a.dispatcher == nil {
+		return
+	}
+	_ = a.dispatcher.Dispatch(action, value)
 }
 
 func (a *App) RebuildScreen() {
@@ -87,14 +101,14 @@ func (a *App) Loop(ctx context.Context) error {
 			hadResize = true
 		}
 		if hadResize || resizedByKey {
-			store.setFrameTimeMS(int(time.Since(start).Milliseconds()))
+			a.DispatchAction(ActionSetFrameTimeMS, int(time.Since(start).Milliseconds()))
 			continue
 		}
 		if State().UIFrozen {
 			if hadInput && !wasFrozen {
 				a.renderComponents(true)
 			}
-			store.setFrameTimeMS(int(time.Since(start).Milliseconds()))
+			a.DispatchAction(ActionSetFrameTimeMS, int(time.Since(start).Milliseconds()))
 			continue
 		}
 		hadTick := hadInput
@@ -106,7 +120,7 @@ func (a *App) Loop(ctx context.Context) error {
 			hadTick = hadTick || ticked
 		}
 		if !hadTick {
-			store.setFrameTimeMS(int(time.Since(start).Milliseconds()))
+			a.DispatchAction(ActionSetFrameTimeMS, int(time.Since(start).Milliseconds()))
 			continue
 		}
 		hadUpdates, err := a.updateState(ctx)
@@ -120,7 +134,7 @@ func (a *App) Loop(ctx context.Context) error {
 			a.statusUpdater.RequestRefresh()
 		}
 		a.renderComponents(hadInput || hadUpdates || hadResize)
-		store.setFrameTimeMS(int(time.Since(start).Milliseconds()))
+		a.DispatchAction(ActionSetFrameTimeMS, int(time.Since(start).Milliseconds()))
 	}
 }
 
@@ -129,7 +143,13 @@ func (a *App) handleInput(ch int) bool {
 		a.RebuildScreen()
 		return true
 	}
-	for _, c := range a.components {
+	if a.screen.HasInputFocus() {
+		return a.screen.HandleInput(ch)
+	}
+	if a.screen.HandleInput(ch) {
+		return true
+	}
+	for _, c := range a.input {
 		if c.HandleInput(ch) {
 			return true
 		}
@@ -172,7 +192,17 @@ func (a *App) renderComponents(force bool) {
 	}
 }
 
-type BaseComponent struct{}
+type BaseComponent struct {
+	app *App
+}
+
+func (b *BaseComponent) setApp(app *App) {
+	b.app = app
+}
+
+func (b *BaseComponent) App() *App {
+	return b.app
+}
 
 func (b *BaseComponent) Update(ctx context.Context) (bool, error) { return false, nil }
 func (b *BaseComponent) HandleInput(ch int) bool                  { return false }

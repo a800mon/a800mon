@@ -415,7 +415,7 @@ class DisassemblyViewer(VisualRpcComponent):
                 anchor_addr = int(self._lines[active_row].addr) & 0xFFFF
             end_addr = start_addr + 1
             for ins in self._lines[:ih]:
-                size = int(getattr(ins, "size", 1))
+                size = int(ins.size)
                 if size < 1:
                     size = 1
                 cand = int(ins.addr) + size
@@ -539,8 +539,6 @@ class DisassemblyViewer(VisualRpcComponent):
 
     def handle_input(self, ch):
         if not self.window.visible:
-            return False
-        if self.app.screen.focused is not self.window:
             return False
 
         lower_ch = ch

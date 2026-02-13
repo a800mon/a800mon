@@ -124,8 +124,6 @@ class HistoryViewer(VisualRpcComponent):
         self.grid.render()
 
     def handle_input(self, ch):
-        if self.app.screen.focused is not self.window:
-            return False
         consumed = self.grid.handle_input(ch)
         if not consumed:
             return False

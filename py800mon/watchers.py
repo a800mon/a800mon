@@ -150,9 +150,6 @@ class WatchersViewer(VisualRpcComponent):
             self.window.clear_to_eol()
 
     def handle_input(self, ch):
-        if self.app.screen.focused is not self.window:
-            return False
-
         if ch == ord("/"):
             self._open_search_input("")
             return True

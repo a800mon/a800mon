@@ -7,6 +7,7 @@ class Screen:
     def __init__(self, scr, layout_initializer=None):
         self.scr = scr
         self.windows = []
+        self._window_input_handlers = {}
         self._focus_order = []
         self.layout_initializer = layout_initializer
         self._initialized = False
@@ -38,6 +39,12 @@ class Screen:
     def add(self, window):
         window.add_to_parent(self)
         self.windows.append(window)
+
+    def set_window_input_handler(self, window, handler):
+        if handler is None:
+            self._window_input_handlers.pop(window, None)
+            return
+        self._window_input_handlers[window] = handler
 
     def set_focus_order(self, windows):
         self._focus_order = [window for window in windows if window is not None]
@@ -113,7 +120,12 @@ class Screen:
 
     def handle_input(self, ch):
         if self._input_handler is None:
-            return False
+            if self.focused is None:
+                return False
+            handler = self._window_input_handlers.get(self.focused)
+            if handler is None:
+                return False
+            return bool(handler(ch))
         return bool(self._input_handler(ch))
 
     def set_input_timeout_ms(self, timeout_ms):

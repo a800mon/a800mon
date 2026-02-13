@@ -13,8 +13,6 @@ type DisassemblyViewer struct {
 	BaseWindowComponent
 	rpc                *RpcClient
 	grid               *GridWidget
-	screen             *Screen
-	dispatcher         *ActionDispatcher
 	addressInput       *AddressInputWidget
 	follow             bool
 	inputMode          string
@@ -35,6 +33,7 @@ type DisassemblyViewer struct {
 	editAddr           uint16
 	hasEditAddr        bool
 	editSnapshot       string
+	editText           string
 	editBytes          []byte
 }
 
@@ -76,11 +75,6 @@ func NewDisassemblyViewer(rpc *RpcClient, window *Window) *DisassemblyViewer {
 	return v
 }
 
-func (d *DisassemblyViewer) BindInput(screen *Screen, dispatcher *ActionDispatcher) {
-	d.screen = screen
-	d.dispatcher = dispatcher
-}
-
 func (d *DisassemblyViewer) EnableFollow() {
 	d.setFollow(true)
 }
@@ -89,7 +83,9 @@ func (d *DisassemblyViewer) Update(ctx context.Context) (bool, error) {
 	st := State()
 	if !st.DisassemblyEnabled {
 		if len(st.DisassemblyRows) > 0 {
-			store.setDisassemblyRows(nil)
+			if app := d.App(); app != nil {
+				app.DispatchAction(ActionSetDisassemblyRows, []DisasmRow(nil))
+			}
 			return true, nil
 		}
 		return false, nil
@@ -170,9 +166,11 @@ func (d *DisassemblyViewer) Update(ctx context.Context) (bool, error) {
 		}
 		rows = append(rows, row)
 	}
-	store.setDisassemblyRows(rows)
-	addr := d.currentAddr
-	store.setDisassemblyAddr(&addr)
+	if app := d.App(); app != nil {
+		app.DispatchAction(ActionSetDisassemblyRows, rows)
+		addr := d.currentAddr
+		app.DispatchAction(ActionSetDisassemblyAddr, addr)
+	}
 
 	snapshot := buildDisasmSnapshot(st.CPU.PC, d.currentAddr, rows)
 	if d.lastSnapshot == snapshot {
@@ -208,7 +206,7 @@ func (d *DisassemblyViewer) Render(_force bool) {
 	gridRows := make([][]string, 0, len(st.DisassemblyRows))
 	activeRow := -1
 	for i, row := range st.DisassemblyRows {
-		if activeRow < 0 && row.Addr == st.CPU.PC && !(st.InputFocus && i == 0) {
+		if activeRow < 0 && row.Addr == st.CPU.PC && !(d.inputMode == inputModeAddr && i == 0) {
 			activeRow = i
 		}
 		op1, op2, op3 := opcodeColumns(row.RawText)
@@ -305,20 +303,16 @@ func (d *DisassemblyViewer) Render(_force bool) {
 		d.grid.SetVirtualScroll(0x10000, int(d.currentAddr), 1)
 	}
 	d.grid.SetOffset(0)
-	if st.InputFocus && d.inputMode == inputModeEdit {
-		row, ok := d.findRowByAddr(d.editAddr)
-		if ok && d.grid.EditingValue() != st.InputBuffer {
-			d.grid.BeginEdit(row, st.InputBuffer)
+	if d.inputMode == inputModeEdit {
+		if row, ok := d.findRowByAddr(d.editAddr); ok {
+			d.grid.BeginEdit(row, d.editText)
 		}
 	}
 	d.grid.Render()
-	if !st.InputFocus {
-		return
-	}
 	if d.inputMode != inputModeAddr {
 		return
 	}
-	text := strings.ToUpper(st.InputBuffer)
+	text := strings.ToUpper(d.addressInput.Buffer())
 	if len(text) > 4 {
 		text = text[len(text)-4:]
 	}
@@ -329,19 +323,7 @@ func (d *DisassemblyViewer) Render(_force bool) {
 
 func (d *DisassemblyViewer) HandleInput(ch int) bool {
 	st := State()
-	if st.InputFocus {
-		if st.InputTarget != "disassembly" {
-			return false
-		}
-		if d.inputMode == inputModeEdit {
-			return d.handleEditInput(ch)
-		}
-		return d.handleAddressInput(ch)
-	}
 	if !d.Window().Visible() {
-		return false
-	}
-	if d.screen == nil || d.screen.Focused() != d.Window() {
 		return false
 	}
 
@@ -421,9 +403,9 @@ func (d *DisassemblyViewer) HandleInput(ch int) bool {
 	d.replaceOnNextInput = true
 	d.inputMode = inputModeAddr
 	d.addressInput.Activate(d.inputSnapshot)
-	_ = d.dispatcher.Dispatch(ActionSetInputBuffer, d.addressInput.Buffer())
-	_ = d.dispatcher.Dispatch(ActionSetInputTarget, "disassembly")
-	_ = d.dispatcher.Dispatch(ActionSetInputFocus, true)
+	if app := d.App(); app != nil {
+		app.DispatchAction(ActionSetInputFocus, d.handleAddressInput)
+	}
 	return true
 }
 
@@ -495,7 +477,9 @@ func (d *DisassemblyViewer) applyPendingNav(ctx context.Context) error {
 		d.currentAddr = addr
 	}
 	d.hasCurrentAddr = true
-	_ = d.dispatcher.Dispatch(ActionSetDisassemblyAddr, d.currentAddr)
+	if app := d.App(); app != nil {
+		app.DispatchAction(ActionSetDisassemblyAddr, d.currentAddr)
+	}
 	return nil
 }
 
@@ -654,7 +638,7 @@ func (d *DisassemblyViewer) handleAddressInput(ch int) bool {
 
 func (d *DisassemblyViewer) handleEditInput(ch int) bool {
 	if ch == 27 {
-		_ = d.dispatcher.Dispatch(ActionSetInputBuffer, d.editSnapshot)
+		d.updateEditBuffer(d.editSnapshot)
 		d.closeInput()
 		return true
 	}
@@ -675,7 +659,6 @@ func (d *DisassemblyViewer) handleEditInput(ch int) bool {
 }
 
 func (d *DisassemblyViewer) updateAddressInput(text string) {
-	_ = d.dispatcher.Dispatch(ActionSetInputBuffer, text)
 	if text == "" {
 		return
 	}
@@ -693,11 +676,13 @@ func (d *DisassemblyViewer) updateAddressInput(text string) {
 	d.pendingNav = navNone
 	d.pendingSteps = 0
 	d.lastSnapshot = ""
-	_ = d.dispatcher.Dispatch(ActionSetDisassemblyAddr, d.currentAddr)
+	if app := d.App(); app != nil {
+		app.DispatchAction(ActionSetDisassemblyAddr, d.currentAddr)
+	}
 }
 
 func (d *DisassemblyViewer) updateEditBuffer(text string) {
-	_ = d.dispatcher.Dispatch(ActionSetInputBuffer, text)
+	d.editText = text
 	d.editBytes = d.assembleEditBuffer(text)
 }
 
@@ -753,12 +738,14 @@ func (d *DisassemblyViewer) openEditInput() bool {
 	d.editAddr = ins.Addr
 	d.hasEditAddr = true
 	d.editSnapshot = text
+	d.editText = text
 	d.inputMode = inputModeEdit
 	d.replaceOnNextInput = false
 	d.updateEditBuffer(text)
 	d.grid.BeginEdit(row, text)
-	_ = d.dispatcher.Dispatch(ActionSetInputTarget, "disassembly")
-	_ = d.dispatcher.Dispatch(ActionSetInputFocus, true)
+	if app := d.App(); app != nil {
+		app.DispatchAction(ActionSetInputFocus, d.handleEditInput)
+	}
 	return true
 }
 
@@ -768,11 +755,13 @@ func (d *DisassemblyViewer) closeInput() {
 	d.hasEditAddr = false
 	d.editAddr = 0
 	d.editSnapshot = ""
+	d.editText = ""
 	d.editBytes = nil
 	d.grid.EndEdit()
 	d.addressInput.Deactivate()
-	_ = d.dispatcher.Dispatch(ActionSetInputTarget, "")
-	_ = d.dispatcher.Dispatch(ActionSetInputFocus, false)
+	if app := d.App(); app != nil {
+		app.DispatchAction(ActionSetInputFocus, nil)
+	}
 }
 
 func (d *DisassemblyViewer) findRowByAddr(addr uint16) (int, bool) {
