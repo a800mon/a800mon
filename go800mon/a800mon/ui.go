@@ -91,6 +91,23 @@ type windowTag struct {
 	active bool
 }
 
+type DialogInputResult int
+
+const (
+	DialogInputNone DialogInputResult = iota
+	DialogInputCancel
+	DialogInputConfirm
+	DialogInputConsume
+)
+
+type DialogWidget struct {
+	window        *Window
+	title         string
+	decision      string
+	decisionColor Color
+	active        bool
+}
+
 type Color int
 
 const (
@@ -234,6 +251,68 @@ func NewWindow(title string, border bool) *Window {
 		w:        1,
 		h:        1,
 	}
+}
+
+func NewDialogWidget(window *Window) *DialogWidget {
+	return &DialogWidget{
+		window:        window,
+		decision:      "YES",
+		decisionColor: ColorInputInvalid,
+	}
+}
+
+func (d *DialogWidget) Activate(title, decision string) {
+	d.title = strings.TrimSpace(title)
+	dec := strings.TrimSpace(decision)
+	if dec == "" {
+		dec = "YES"
+	}
+	d.decision = dec
+	d.active = true
+}
+
+func (d *DialogWidget) Deactivate() {
+	d.active = false
+}
+
+func (d *DialogWidget) Active() bool {
+	return d.active
+}
+
+func (d *DialogWidget) HandleInput(ch int) DialogInputResult {
+	if !d.active {
+		return DialogInputNone
+	}
+	if ch == 27 {
+		d.Deactivate()
+		return DialogInputCancel
+	}
+	if ch == 10 || ch == 13 || ch == KeyEnter() {
+		d.Deactivate()
+		return DialogInputConfirm
+	}
+	return DialogInputConsume
+}
+
+func (d *DialogWidget) Render() {
+	if !d.active || d.window == nil {
+		return
+	}
+	baseAttr := ColorText.Attr() | AttrReverse()
+	decisionAttr := d.decisionColor.Attr() | AttrReverse()
+	d.window.Cursor(0, 0)
+	d.window.FillToEOL(' ', baseAttr)
+	if d.title != "" {
+		d.window.Cursor(0, 0)
+		d.window.Print(d.title, baseAttr, false)
+	}
+	decision := " " + strings.TrimSpace(d.decision) + " "
+	start := d.window.Width() - runeLen(decision)
+	if start < 0 {
+		start = 0
+	}
+	d.window.Cursor(start, 0)
+	d.window.Print(decision, decisionAttr, false)
 }
 
 func (w *Window) WindowCallbacks(onFocus, onBlur func()) {

@@ -8,7 +8,7 @@ from .datastructures import BreakpointClauseEntry, BreakpointConditionEntry
 from .inputwidget import InputWidget
 from .memory import parse_hex
 from .rpc import RpcException
-from .ui import Color
+from .ui import Color, DialogInput, DialogWidget
 
 BP_CONDITION_TYPES = {
     "pc": 1,
@@ -166,9 +166,11 @@ class BreakpointsViewer(VisualRpcComponent):
         self._input_invalid = False
         self._pending_add_clauses = None
         self._pending_delete = None
+        self._pending_clear = False
         self._pending_enabled = None
         self._refresh_requested = False
         self._input_clauses = None
+        self._clear_dialog = DialogWidget(self.window)
         self._input_widget = InputWidget(
             self.window,
             max_length=None,
@@ -219,13 +221,17 @@ class BreakpointsViewer(VisualRpcComponent):
         if ih <= 0:
             return
         has_focus = self._screen is not None and self._screen.focused is self.window
+        dialog_active = self._clear_dialog.active
         input_active = state.input_focus and state.input_target == "breakpoints"
-        row_base = 1 if input_active else 0
+        row_base = 1 if (input_active or dialog_active) else 0
         max_rows = max(0, ih - row_base)
         self.window.cursor = (0, row_base)
         self.window.set_tag_active("bp_enabled", state.breakpoints_enabled)
 
-        if input_active:
+        if dialog_active:
+            self._clear_dialog.render()
+            self.window.cursor = (0, row_base)
+        elif input_active:
             self.window.cursor = (0, 0)
             color = Color.INPUT_INVALID if self._input_invalid else Color.TEXT
             attr = color.attr() | curses.A_REVERSE
@@ -276,6 +282,11 @@ class BreakpointsViewer(VisualRpcComponent):
     def handle_input(self, ch):
         if self._screen is None:
             return False
+        if self._clear_dialog.active:
+            result = self._clear_dialog.handle_input(ch)
+            if result == DialogInput.CONFIRM:
+                self._pending_clear = True
+            return not result == DialogInput.NONE
         if state.input_focus:
             if state.input_target != "breakpoints":
                 return False
@@ -299,6 +310,9 @@ class BreakpointsViewer(VisualRpcComponent):
             return True
         if ch in (curses.KEY_DC, 330):
             self._queue_delete_selected()
+            return True
+        if ch in (ord("c"), ord("C")):
+            self._clear_dialog.activate("Clear all breakpoints?", "YES")
             return True
         if ch in (ord("e"), ord("E")):
             self._pending_enabled = not state.breakpoints_enabled
@@ -388,6 +402,15 @@ class BreakpointsViewer(VisualRpcComponent):
 
     async def _apply_pending_ops(self):
         changed = False
+        if self._pending_clear:
+            self._pending_clear = False
+            try:
+                await self.rpc.breakpoint_clear()
+                self._selected = None
+                self._refresh_requested = True
+                changed = True
+            except RpcException:
+                pass
         if self._pending_delete is not None:
             idx = int(self._pending_delete)
             self._pending_delete = None

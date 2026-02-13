@@ -320,12 +320,17 @@ class Window:
 
     def print_char(self, char, attr=0, wrap=False):
         cx, cy = self.cursor
-        nx = cx + 1
-        if not wrap and nx > self._iw - 1:
+        if cx < 0 or cy < 0 or cx >= self._iw or cy >= self._ih:
             return
         self.inner.addch(char, attr)
-        if nx == self._iw - 1:
-            self.newline()
+        nx = cx + 1
+        if wrap and nx >= self._iw and cy < self._ih - 1:
+            self.cursor = (0, cy + 1)
+            return
+        if nx < self._iw:
+            self.cursor = (nx, cy)
+            return
+        self.cursor = (self._iw - 1, cy)
 
     def print(self, text, attr=0, wrap=False):
         self._dirty = True
@@ -341,7 +346,7 @@ class Window:
 
         c = 0
         while c < tl and cy < ih:
-            cut = min(iw - cx - 1, tl - c)
+            cut = min(iw - cx, tl - c)
             if cut <= 0:
                 if wrap and cy < ih - 1:
                     cx = 0
@@ -354,14 +359,16 @@ class Window:
             except curses.error:
                 break
             cx += cut
-            if cx == iw - 1:
+            if not wrap:
+                if cx >= iw:
+                    cx = iw - 1
+                break
+            if cx >= iw:
                 cx = 0
                 if cy < ih - 1:
                     cy += 1
                 else:
                     break
-            if not wrap:
-                break
             c += cut
 
         try:
@@ -409,6 +416,60 @@ class Window:
         return f"<Window title={self.title} w={self.w} h={self.h}>"
 
 
+class DialogWidget:
+    def __init__(
+        self,
+        window,
+        title: str = "",
+        decision: str = "YES",
+        decision_color=None,
+    ):
+        self.window = window
+        self.title = str(title)
+        self.decision = str(decision)
+        self.decision_color = (
+            Color.INPUT_INVALID if decision_color is None else decision_color
+        )
+        self.active = False
+
+    def activate(self, title: str, decision: str = "YES"):
+        self.title = str(title)
+        self.decision = str(decision)
+        self.active = True
+
+    def deactivate(self):
+        self.active = False
+
+    def handle_input(self, ch):
+        if not self.active:
+            return DialogInput.NONE
+        if ch == 27:
+            self.deactivate()
+            return DialogInput.CANCEL
+        if ch in (10, 13, curses.KEY_ENTER):
+            self.deactivate()
+            return DialogInput.CONFIRM
+        return DialogInput.CONSUME
+
+    def render(self):
+        if not self.active:
+            return
+        self.window.cursor = (0, 0)
+        base_attr = Color.TEXT.attr() | curses.A_REVERSE
+        decision_attr = self.decision_color.attr() | curses.A_REVERSE
+        title = self.title.strip()
+        decision = f" {self.decision.strip()} "
+        self.window.fill_to_eol(attr=base_attr)
+        if title:
+            self.window.cursor = (0, 0)
+            self.window.print(title, attr=base_attr)
+        start = self.window._iw - len(decision)
+        if start < 0:
+            start = 0
+        self.window.cursor = (start, 0)
+        self.window.print(decision, attr=decision_attr)
+
+
 def init_color_pairs():
     curses.init_pair(1, curses.COLOR_CYAN, curses.COLOR_BLACK)
     curses.init_pair(2, curses.COLOR_WHITE, curses.COLOR_RED)
@@ -439,3 +500,10 @@ class Color(enum.Enum):
 
     def attr(self):
         return curses.color_pair(self.value[0]) | self.value[1]
+
+
+class DialogInput(enum.IntEnum):
+    NONE = 0
+    CANCEL = 1
+    CONFIRM = 2
+    CONSUME = 3

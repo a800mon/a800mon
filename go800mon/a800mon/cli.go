@@ -1003,7 +1003,7 @@ func cmdBPList(socket string) int {
 		for _, cond := range clause {
 			parts = append(parts, formatBPCondition(cond))
 		}
-		fmt.Printf("#%02d %s\n", i+1, strings.Join(parts, " && "))
+		fmt.Printf("#%02d %s\n", i+1, strings.Join(parts, " AND "))
 	}
 	return 0
 }
@@ -1012,15 +1012,30 @@ func cmdBPAdd(socket string, args cliBPAddCmd) int {
 	if len(args.Conditions) == 0 {
 		return fail(errors.New("Specify at least one condition."))
 	}
-	conds, err := parseBPClause(strings.Join(args.Conditions, " && "))
+	clauses, err := parseBPClauses(strings.Join(args.Conditions, " "))
 	if err != nil {
 		return fail(err)
 	}
-	idx, err := rpcClient(socket).BPAddClause(context.Background(), conds)
-	if err != nil {
-		return fail(err)
+	added := make([]int, 0, len(clauses))
+	for _, clause := range clauses {
+		idx, addErr := rpcClient(socket).BPAddClause(context.Background(), clause)
+		if addErr != nil {
+			return fail(addErr)
+		}
+		added = append(added, int(idx)+1)
 	}
-	fmt.Printf("Added clause #%d\n", int(idx)+1)
+	if len(added) == 0 {
+		return 0
+	}
+	if len(added) == 1 {
+		fmt.Printf("Added clause #%d\n", added[0])
+		return 0
+	}
+	parts := make([]string, 0, len(added))
+	for _, idx := range added {
+		parts = append(parts, fmt.Sprintf("#%d", idx))
+	}
+	fmt.Printf("Added clauses: %s\n", strings.Join(parts, ", "))
 	return 0
 }
 

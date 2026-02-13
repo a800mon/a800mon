@@ -72,7 +72,9 @@ type BreakpointsViewer struct {
 	hasPendingAdd    bool
 	pendingDelete    *int
 	pendingEnabled   *bool
+	pendingClear     bool
 	refreshRequested bool
+	clearDialog      *DialogWidget
 	inputWidget      *InputWidget
 }
 
@@ -81,6 +83,7 @@ func NewBreakpointsViewer(rpc *RpcClient, window *Window) *BreakpointsViewer {
 		BaseVisualComponent: NewBaseVisualComponent(window),
 		rpc:                 rpc,
 	}
+	v.clearDialog = NewDialogWidget(window)
 	v.inputWidget = NewInputWidget(window)
 	v.inputWidget.SetOnChange(v.onInputChange)
 	return v
@@ -97,6 +100,14 @@ func (v *BreakpointsViewer) Update(ctx context.Context) (bool, error) {
 		return false, nil
 	}
 	changed := false
+	if v.pendingClear {
+		v.pendingClear = false
+		if err := v.rpc.BPClear(ctx); err == nil {
+			v.selected = nil
+			v.refreshRequested = true
+			changed = true
+		}
+	}
 	if v.pendingDelete != nil {
 		idx := *v.pendingDelete
 		v.pendingDelete = nil
@@ -172,9 +183,10 @@ func (v *BreakpointsViewer) Render(_force bool) {
 		return
 	}
 	hasFocus := v.screen != nil && v.screen.Focused() == v.Window()
+	dialogActive := v.clearDialog != nil && v.clearDialog.Active()
 	inputActive := st.InputFocus && st.InputTarget == "breakpoints"
 	rowBase := 0
-	if inputActive {
+	if inputActive || dialogActive {
 		rowBase = 1
 	}
 	maxRows := ih - rowBase
@@ -184,7 +196,10 @@ func (v *BreakpointsViewer) Render(_force bool) {
 	w.Cursor(0, rowBase)
 	w.SetTagActive("bp_enabled", st.BreakpointsEnabled)
 
-	if inputActive {
+	if dialogActive {
+		v.clearDialog.Render()
+		w.Cursor(0, rowBase)
+	} else if inputActive {
 		w.Cursor(0, 0)
 		color := ColorText
 		if v.inputInvalid {
@@ -228,6 +243,13 @@ func (v *BreakpointsViewer) HandleInput(ch int) bool {
 	if v.screen == nil {
 		return false
 	}
+	if v.clearDialog != nil && v.clearDialog.Active() {
+		result := v.clearDialog.HandleInput(ch)
+		if result == DialogInputConfirm {
+			v.pendingClear = true
+		}
+		return !(result == DialogInputNone)
+	}
 	if st.InputFocus {
 		if st.InputTarget != "breakpoints" {
 			return false
@@ -266,6 +288,10 @@ func (v *BreakpointsViewer) HandleInput(ch int) bool {
 	}
 	if ch == KeyDelete() || ch == 330 {
 		v.queueDeleteSelected()
+		return true
+	}
+	if ch == int('c') || ch == int('C') {
+		v.clearDialog.Activate("Clear all breakpoints?", "YES")
 		return true
 	}
 	if ch == int('e') || ch == int('E') {
