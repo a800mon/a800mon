@@ -16,6 +16,7 @@ type ScreenBufferInspector struct {
 	rpc            *RpcClient
 	grid           *GridWidget
 	screen         *Screen
+	rows           []ScreenRow
 	lastUseATASCII bool
 	lastSnapshot   string
 }
@@ -62,21 +63,8 @@ func (s *ScreenBufferInspector) Update(ctx context.Context) (bool, error) {
 	st := State()
 	mapper := dl.NewMemoryMapper(st.DList, st.DMACTL, 0x400)
 	fetchRanges, rowSlices := mapper.Plan()
-	segs := st.DList.ScreenSegments(st.DMACTL)
-	if st.DListSelectedRegion != nil && *st.DListSelectedRegion >= 0 && *st.DListSelectedRegion < len(segs) {
-		seg := segs[*st.DListSelectedRegion]
-		fetchRanges = []dl.FetchRange{{Start: seg.Start, End: seg.End}}
-		filtered := make([]dl.RowSlice, 0, len(rowSlices))
-		for _, r := range rowSlices {
-			addr := int(r.Addr)
-			if seg.Start <= addr && addr < seg.End {
-				filtered = append(filtered, r)
-			}
-		}
-		rowSlices = filtered
-	}
 	if len(fetchRanges) == 0 {
-		store.setScreenRows(nil)
+		s.rows = nil
 		if s.lastSnapshot == "" {
 			return false, nil
 		}
@@ -107,7 +95,7 @@ func (s *ScreenBufferInspector) Update(ctx context.Context) (bool, error) {
 		}
 		rows = append(rows, ScreenRow{Addr: rs.Addr, Data: row})
 	}
-	store.setScreenRows(rows)
+	s.rows = rows
 	snapshot := buildScreenRowsSnapshot(rows)
 	if s.lastSnapshot == snapshot {
 		return false, nil
@@ -164,7 +152,7 @@ func (s *ScreenBufferInspector) Render(_force bool) {
 	}
 	rows := make([]ScreenRow, 0, w.Height())
 	drawWidth := 0
-	for _, row := range st.ScreenRows {
+	for _, row := range s.rows {
 		if len(row.Data) > contentWidth {
 			row.Data = row.Data[:contentWidth]
 		}

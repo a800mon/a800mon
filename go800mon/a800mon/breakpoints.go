@@ -61,6 +61,8 @@ type BreakpointsViewer struct {
 	grid             *GridWidget
 	screen           *Screen
 	dispatcher       *ActionDispatcher
+	enabled          bool
+	clauses          []BreakpointClauseRow
 	lastSnapshot     string
 	lastStateSeq     uint64
 	hasSnapshot      bool
@@ -172,11 +174,9 @@ func (v *BreakpointsViewer) Update(ctx context.Context) (bool, error) {
 	}
 	v.hasSnapshot = true
 	v.lastSnapshot = snapshot
-	if v.dispatcher != nil {
-		v.dispatcher.updateBreakpoints(list.Enabled, clauses)
-		return true, nil
-	}
-	return changed, nil
+	v.enabled = list.Enabled
+	v.clauses = clauses
+	return true, nil
 }
 
 func (v *BreakpointsViewer) Render(_force bool) {
@@ -193,17 +193,17 @@ func (v *BreakpointsViewer) Render(_force bool) {
 	if inputActive || dialogActive {
 		rowBase = 1
 	}
-	w.SetTagActive("bp_enabled", st.BreakpointsEnabled)
-	rows := make([]GridRow, 0, len(st.Breakpoints)+2)
+	w.SetTagActive("bp_enabled", v.enabled)
+	rows := make([]GridRow, 0, len(v.clauses)+2)
 	if rowBase > 0 {
 		rows = append(rows, GridRow{{Text: "", Attr: ColorText.Attr()}})
 	}
 
-	if len(st.Breakpoints) == 0 {
+	if len(v.clauses) == 0 {
 		rows = append(rows, GridRow{{Text: "No breakpoint clauses.", Attr: ColorComment.Attr()}})
 		g.SetGridSelected(nil)
 	} else {
-		for i, clause := range st.Breakpoints {
+		for i, clause := range v.clauses {
 			cells := make([]GridCell, 0, 16)
 			cells = append(cells, GridCell{Text: fmt.Sprintf("#%02d ", i+1), Attr: ColorAddress.Attr()})
 			cells = append(cells, v.clauseCells(clause)...)
@@ -258,7 +258,7 @@ func (v *BreakpointsViewer) HandleInput(ch int) bool {
 			v.selected = nil
 		} else {
 			v.selected = &idx
-			v.clampSelected(len(st.Breakpoints))
+			v.clampSelected(len(v.clauses))
 		}
 		return true
 	}
@@ -271,7 +271,7 @@ func (v *BreakpointsViewer) HandleInput(ch int) bool {
 		return true
 	}
 	if ch == int(' ') || ch == int('e') || ch == int('E') {
-		enabled := !st.BreakpointsEnabled
+		enabled := !v.enabled
 		v.pendingEnabled = &enabled
 		return true
 	}
@@ -309,20 +309,19 @@ func (v *BreakpointsViewer) conditionCells(cond BreakpointConditionRow) []GridCe
 }
 
 func (v *BreakpointsViewer) queueDeleteSelected() {
-	st := State()
 	if v.selected == nil {
 		return
 	}
 	idx := *v.selected
-	if idx < 0 || idx >= len(st.Breakpoints) {
+	if idx < 0 || idx >= len(v.clauses) {
 		return
 	}
 	v.pendingDelete = &idx
-	if idx >= len(st.Breakpoints)-1 {
-		if len(st.Breakpoints) <= 1 {
+	if idx >= len(v.clauses)-1 {
+		if len(v.clauses) <= 1 {
 			v.selected = nil
 		} else {
-			next := len(st.Breakpoints) - 2
+			next := len(v.clauses) - 2
 			v.selected = &next
 		}
 	}

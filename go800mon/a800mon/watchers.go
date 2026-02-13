@@ -9,14 +9,18 @@ import (
 
 type WatchersViewer struct {
 	BaseWindowComponent
-	rpc           *RpcClient
-	grid          *GridWidget
-	screen        *Screen
-	dispatcher    *ActionDispatcher
-	inputSnapshot string
-	inputMode     string
-	lastSnapshot  string
-	searchInput   *InputWidget
+	rpc               *RpcClient
+	grid              *GridWidget
+	screen            *Screen
+	dispatcher        *ActionDispatcher
+	rows              []WatcherRow
+	pending           *WatcherRow
+	selected          *int
+	inputSnapshot     string
+	inputMode         string
+	lastSnapshot      string
+	searchInput       *InputWidget
+	gridSelectedShift int
 }
 
 func NewWatchersViewer(rpc *RpcClient, window *Window) *WatchersViewer {
@@ -38,16 +42,13 @@ func (v *WatchersViewer) BindInput(screen *Screen, dispatcher *ActionDispatcher)
 	v.dispatcher = dispatcher
 	v.Window().WindowCallbacks(func() {
 		v.grid.SetGridSelected(nil)
-		if v.dispatcher != nil {
-			_ = v.dispatcher.Dispatch(ActionSetWatcherSelected, nil)
-		}
+		v.selected = nil
 	}, nil)
 }
 
 func (v *WatchersViewer) Update(ctx context.Context) (bool, error) {
-	st := State()
-	rows := make([]WatcherRow, 0, len(st.Watchers))
-	for _, row := range st.Watchers {
+	rows := make([]WatcherRow, 0, len(v.rows))
+	for _, row := range v.rows {
 		value := row.Value
 		nextValue := row.NextValue
 		data, err := v.rpc.ReadMemory(ctx, row.Addr, 2)
@@ -69,10 +70,10 @@ func (v *WatchersViewer) Update(ctx context.Context) (bool, error) {
 	}
 
 	var pending *WatcherRow
-	if st.WatcherPending != nil {
-		value := st.WatcherPending.Value
-		nextValue := st.WatcherPending.NextValue
-		data, err := v.rpc.ReadMemory(ctx, st.WatcherPending.Addr, 2)
+	if v.pending != nil {
+		value := v.pending.Value
+		nextValue := v.pending.NextValue
+		data, err := v.rpc.ReadMemory(ctx, v.pending.Addr, 2)
 		if err != nil {
 			return false, nil
 		}
@@ -83,29 +84,24 @@ func (v *WatchersViewer) Update(ctx context.Context) (bool, error) {
 			nextValue = data[1]
 		}
 		p := WatcherRow{
-			Addr:      st.WatcherPending.Addr,
+			Addr:      v.pending.Addr,
 			Value:     value,
 			NextValue: nextValue,
-			Comment:   LookupSymbol(st.WatcherPending.Addr),
+			Comment:   LookupSymbol(v.pending.Addr),
 		}
 		pending = &p
 	}
 
-	snapshot := buildWatchersSnapshot(
-		rows,
-		pending,
-		st.WatcherSelected,
-		st.InputFocus,
-		st.InputTarget,
-		st.InputBuffer,
-		st.UseATASCII,
-		v.inputMode,
-	)
+	v.rows = rows
+	v.pending = pending
+	v.clampSelected(len(v.rows))
+
+	st := State()
+	snapshot := buildWatchersSnapshot(v.rows, v.pending, v.selected, st.InputFocus, st.InputTarget, st.InputBuffer, v.inputMode)
 	if snapshot == v.lastSnapshot {
 		return false, nil
 	}
 	v.lastSnapshot = snapshot
-	v.dispatcher.updateWatchers(rows, pending)
 	return true, nil
 }
 
@@ -117,27 +113,28 @@ func (v *WatchersViewer) Render(_force bool) {
 		return
 	}
 	inputActive := st.InputFocus && st.InputTarget == "watchers"
-	rows := make([]GridRow, 0, len(st.Watchers)+2)
+	rows := make([]GridRow, 0, len(v.rows)+2)
 	rowBase := 0
 	if inputActive {
 		rowBase = 1
 		rows = append(rows, GridRow{{Text: "", Attr: ColorText.Attr()}})
 	}
-	selectedOffset := rowBase
-	if st.WatcherPending != nil {
-		rows = append(rows, v.watcherRowCells(*st.WatcherPending))
-		selectedOffset++
+	pendingOffset := 0
+	if v.pending != nil {
+		pendingOffset = 1
+		rows = append(rows, v.watcherRowCells(*v.pending))
 	}
-	for _, row := range st.Watchers {
+	for _, row := range v.rows {
 		rows = append(rows, v.watcherRowCells(row))
 	}
 
+	v.gridSelectedShift = rowBase + pendingOffset
 	v.grid.SetGridColumnWidths(nil)
 	v.grid.SetGridRows(rows)
-	if st.WatcherSelected == nil {
+	if v.selected == nil {
 		v.grid.SetGridSelected(nil)
 	} else {
-		idx := *st.WatcherSelected + selectedOffset
+		idx := *v.selected + v.gridSelectedShift
 		v.grid.SetGridSelected(&idx)
 	}
 	v.grid.RenderGrid()
@@ -175,17 +172,24 @@ func (v *WatchersViewer) HandleInput(ch int) bool {
 		_ = v.dispatcher.Dispatch(ActionSetInputBuffer, v.searchInput.Buffer())
 		_ = v.dispatcher.Dispatch(ActionSetInputTarget, "watchers")
 		_ = v.dispatcher.Dispatch(ActionSetInputFocus, true)
-		_ = v.dispatcher.Dispatch(ActionSetWatcherPendingAddr, nil)
+		v.pending = nil
 		return true
 	}
 
 	if v.grid.HandleGridNavigationInput(ch) {
-		v.syncSelectedFromGrid()
+		offset := 0
+		if st.InputFocus && st.InputTarget == "watchers" {
+			offset++
+		}
+		if v.pending != nil {
+			offset++
+		}
+		v.syncSelectedFromGrid(offset)
 		return true
 	}
 
 	if ch == KeyDelete() || ch == 330 {
-		_ = v.dispatcher.Dispatch(ActionRemoveSelectedWatcher, nil)
+		v.deleteSelected()
 		return true
 	}
 
@@ -200,18 +204,17 @@ func (v *WatchersViewer) closeInput() {
 }
 
 func (v *WatchersViewer) handleSearchInput(ch int) bool {
-	st := State()
 	if ch == 27 {
 		_ = v.dispatcher.Dispatch(ActionSetInputBuffer, v.inputSnapshot)
-		_ = v.dispatcher.Dispatch(ActionSetWatcherPendingAddr, nil)
+		v.pending = nil
 		v.closeInput()
 		return true
 	}
 	if ch == 10 || ch == 13 || ch == KeyEnter() {
-		if st.WatcherPending != nil {
-			_ = v.dispatcher.Dispatch(ActionCommitWatcherPending, nil)
+		if v.pending != nil {
+			v.commitPending()
 		} else {
-			_ = v.dispatcher.Dispatch(ActionSetWatcherPendingAddr, nil)
+			v.pending = nil
 		}
 		v.closeInput()
 		return true
@@ -228,29 +231,76 @@ func (v *WatchersViewer) handleSearchInput(ch int) bool {
 	return true
 }
 
-func (v *WatchersViewer) syncSelectedFromGrid() {
-	if v.dispatcher == nil {
+func (v *WatchersViewer) commitPending() {
+	if v.pending == nil {
 		return
 	}
-	st := State()
+	addr := v.pending.Addr
+	for i, row := range v.rows {
+		if row.Addr == addr {
+			idx := i
+			v.selected = &idx
+			v.pending = nil
+			return
+		}
+	}
+	v.rows = append([]WatcherRow{{Addr: addr, Value: 0, NextValue: 0, Comment: LookupSymbol(addr)}}, v.rows...)
+	v.selected = nil
+	v.pending = nil
+}
+
+func (v *WatchersViewer) deleteSelected() {
+	if v.selected == nil {
+		return
+	}
+	idx := *v.selected
+	if idx < 0 || idx >= len(v.rows) {
+		return
+	}
+	rows := make([]WatcherRow, 0, len(v.rows)-1)
+	rows = append(rows, v.rows[:idx]...)
+	rows = append(rows, v.rows[idx+1:]...)
+	v.rows = rows
+	if len(v.rows) == 0 {
+		v.selected = nil
+		return
+	}
+	if idx >= len(v.rows) {
+		idx = len(v.rows) - 1
+	}
+	v.selected = &idx
+}
+
+func (v *WatchersViewer) syncSelectedFromGrid(offset int) {
 	idx, ok := v.grid.GridSelected()
 	if !ok {
-		_ = v.dispatcher.Dispatch(ActionSetWatcherSelected, nil)
+		v.selected = nil
 		return
-	}
-	offset := 0
-	if st.InputFocus && st.InputTarget == "watchers" {
-		offset++
-	}
-	if st.WatcherPending != nil {
-		offset++
 	}
 	idx -= offset
-	if idx < 0 || idx >= len(st.Watchers) {
-		_ = v.dispatcher.Dispatch(ActionSetWatcherSelected, nil)
+	if idx < 0 || idx >= len(v.rows) {
+		v.selected = nil
 		return
 	}
-	_ = v.dispatcher.Dispatch(ActionSetWatcherSelected, idx)
+	v.selected = &idx
+}
+
+func (v *WatchersViewer) clampSelected(rowCount int) {
+	if rowCount <= 0 {
+		v.selected = nil
+		return
+	}
+	if v.selected == nil {
+		return
+	}
+	idx := *v.selected
+	if idx < 0 {
+		idx = 0
+	}
+	if idx >= rowCount {
+		idx = rowCount - 1
+	}
+	v.selected = &idx
 }
 
 func (v *WatchersViewer) watcherRowCells(row WatcherRow) GridRow {
@@ -266,18 +316,15 @@ func (v *WatchersViewer) watcherRowCells(row WatcherRow) GridRow {
 }
 
 func (v *WatchersViewer) onSearchChange(text string) {
-	if v.dispatcher == nil {
-		return
-	}
 	addr, ok := FindSymbolOrAddress(text)
 	if !ok {
-		_ = v.dispatcher.Dispatch(ActionSetWatcherPendingAddr, nil)
+		v.pending = nil
 		return
 	}
-	_ = v.dispatcher.Dispatch(ActionSetWatcherPendingAddr, int(addr))
+	v.pending = &WatcherRow{Addr: addr, Value: 0, NextValue: 0, Comment: LookupSymbol(addr)}
 }
 
-func buildWatchersSnapshot(rows []WatcherRow, pending *WatcherRow, selected *int, inputFocus bool, inputTarget string, inputBuffer string, useATASCII bool, inputMode string) string {
+func buildWatchersSnapshot(rows []WatcherRow, pending *WatcherRow, selected *int, inputFocus bool, inputTarget string, inputBuffer string, inputMode string) string {
 	parts := make([]string, 0, len(rows)+8)
 	for _, row := range rows {
 		parts = append(parts, fmt.Sprintf("%04X:%02X:%02X:%s", row.Addr, row.Value, row.NextValue, row.Comment))
@@ -290,7 +337,7 @@ func buildWatchersSnapshot(rows []WatcherRow, pending *WatcherRow, selected *int
 	} else {
 		parts = append(parts, "sel:"+strconv.Itoa(*selected))
 	}
-	parts = append(parts, fmt.Sprintf("in:%t:%s:%s:%t", inputFocus, inputTarget, inputBuffer, useATASCII))
+	parts = append(parts, fmt.Sprintf("in:%t:%s:%s", inputFocus, inputTarget, inputBuffer))
 	parts = append(parts, "mode:"+inputMode)
 	return strings.Join(parts, "|")
 }

@@ -23,10 +23,6 @@ const (
 	ActionSetInputFocus
 	ActionSetInputTarget
 	ActionSetInputBuffer
-	ActionSetWatcherPendingAddr
-	ActionCommitWatcherPending
-	ActionRemoveSelectedWatcher
-	ActionSetWatcherSelected
 	ActionQuit
 )
 
@@ -147,73 +143,6 @@ func (d *ActionDispatcher) Dispatch(action Action, value any) error {
 		if text, ok := value.(string); ok {
 			store.setInputBuffer(text)
 		}
-	case ActionSetWatcherPendingAddr:
-		if value == nil {
-			store.setWatcherPending(nil)
-			break
-		}
-		addr := uint16(0)
-		ok := true
-		switch v := value.(type) {
-		case uint16:
-			addr = v
-		case int:
-			addr = uint16(v & 0xFFFF)
-		default:
-			ok = false
-		}
-		if !ok {
-			break
-		}
-		store.setWatcherPending(&WatcherRow{Addr: addr, Value: 0, Comment: ""})
-	case ActionCommitWatcherPending:
-		if st.WatcherPending == nil {
-			break
-		}
-		rows := make([]WatcherRow, len(st.Watchers))
-		copy(rows, st.Watchers)
-		for i, row := range rows {
-			if row.Addr == st.WatcherPending.Addr {
-				idx := i
-				store.setWatcherSelected(&idx)
-				store.setWatcherPending(nil)
-				return nil
-			}
-		}
-		rows = append([]WatcherRow{*st.WatcherPending}, rows...)
-		store.setWatchers(rows)
-		store.setWatcherSelected(nil)
-		store.setWatcherPending(nil)
-	case ActionRemoveSelectedWatcher:
-		if st.WatcherSelected == nil {
-			break
-		}
-		idx := *st.WatcherSelected
-		if idx < 0 || idx >= len(st.Watchers) {
-			break
-		}
-		rows := make([]WatcherRow, 0, len(st.Watchers)-1)
-		rows = append(rows, st.Watchers[:idx]...)
-		rows = append(rows, st.Watchers[idx+1:]...)
-		store.setWatchers(rows)
-		if len(rows) == 0 {
-			store.setWatcherSelected(nil)
-		} else {
-			if idx >= len(rows) {
-				idx = len(rows) - 1
-			}
-			store.setWatcherSelected(&idx)
-		}
-	case ActionSetWatcherSelected:
-		if value == nil {
-			store.setWatcherSelected(nil)
-			break
-		}
-		switch v := value.(type) {
-		case int:
-			idx := v
-			store.setWatcherSelected(&idx)
-		}
 	case ActionQuit:
 		d.stopLoop = true
 	}
@@ -230,15 +159,6 @@ func (d *ActionDispatcher) updateLastRPCError(text string) {
 
 func (d *ActionDispatcher) updateCPU(cpu CPUState, dis string) {
 	store.setCPU(cpu, dis)
-}
-
-func (d *ActionDispatcher) updateWatchers(rows []WatcherRow, pending *WatcherRow) {
-	store.setWatchers(rows)
-	store.setWatcherPending(pending)
-}
-
-func (d *ActionDispatcher) updateBreakpoints(enabled bool, clauses []BreakpointClauseRow) {
-	store.setBreakpoints(enabled, clauses)
 }
 
 func (d *ActionDispatcher) updateBreakpointsSupported(enabled bool) {
