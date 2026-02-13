@@ -7,19 +7,25 @@ from .inputwidget import InputWidget
 from .memorymap import find_symbol_or_addr, lookup_symbol
 from .rpc import RpcException
 from .actions import Actions
-from .ui import Color, GridCell, GridWidget
+from .ui import Color, GridWidget
 
 
 class WatchersViewer(VisualRpcComponent):
     def __init__(self, rpc, window):
         super().__init__(rpc, window)
         self.grid = GridWidget(window, col_gap=0)
+        self.grid.add_column("addr", width=0, attr=Color.ADDRESS.attr())
+        self.grid.add_column("value", width=0, attr=Color.TEXT.attr())
+        self.grid.add_column("next_addr", width=0, attr=Color.ADDRESS.attr())
+        self.grid.add_column("next_value", width=0, attr=Color.TEXT.attr())
+        self.grid.add_column("ascii", width=0, attr=Color.TEXT.attr())
+        self.grid.add_column("comment", width=0, attr=Color.COMMENT.attr())
         self._rows = []
         self._input_snapshot = ""
         self._input_mode = None
         self._pending_addr = None
         self._pending_row = None
-        self._grid_selected_offset = 0
+        self._selected_row_offset = 0
         self._last_snapshot = None
         self._search_input = InputWidget(
             self.window,
@@ -29,7 +35,7 @@ class WatchersViewer(VisualRpcComponent):
         self.window.on_focus = self.clear_selection
 
     def clear_selection(self):
-        self.grid.set_grid_selected(None)
+        self.grid.set_selected_row(None)
 
     async def update(self):
         ranges = [(row.addr & 0xFFFF, 2) for row in self._rows]
@@ -117,7 +123,7 @@ class WatchersViewer(VisualRpcComponent):
         row_base = 0
         if input_active:
             row_base = 1
-            rows.append((GridCell("", Color.TEXT.attr()),))
+            rows.append(("",))
 
         pending_offset = 0
         if self._pending_row is not None:
@@ -127,14 +133,13 @@ class WatchersViewer(VisualRpcComponent):
             rows.append(self._row_cells(row))
 
         selected = self._selected_index()
-        self._grid_selected_offset = row_base + pending_offset
+        self._selected_row_offset = row_base + pending_offset
         if selected is None:
-            self.grid.set_grid_selected(None)
+            self.grid.set_selected_row(None)
         else:
-            self.grid.set_grid_selected(selected + self._grid_selected_offset)
-        self.grid.set_grid_column_widths(())
-        self.grid.set_grid_rows(rows)
-        self.grid.render_grid()
+            self.grid.set_selected_row(selected + self._selected_row_offset)
+        self.grid.set_data(rows)
+        self.grid.render()
 
         if input_active:
             self.window.cursor = (0, 0)
@@ -152,7 +157,7 @@ class WatchersViewer(VisualRpcComponent):
             self._open_search_input("")
             return True
 
-        if self.grid.handle_grid_navigation_input(ch):
+        if self.grid.handle_input(ch):
             return True
 
         if ch in (curses.KEY_DC, 330):
@@ -271,10 +276,10 @@ class WatchersViewer(VisualRpcComponent):
             self._set_selected_index(row_count - 1)
 
     def _selected_index(self):
-        idx = self.grid.grid_selected
+        idx = self.grid.selected_row
         if idx is None:
             return None
-        idx = int(idx) - self._grid_selected_offset
+        idx = int(idx) - self._selected_row_offset
         if idx < 0:
             return None
         if idx >= len(self._rows):
@@ -283,18 +288,18 @@ class WatchersViewer(VisualRpcComponent):
 
     def _set_selected_index(self, idx: int | None):
         if idx is None or len(self._rows) == 0:
-            self.grid.set_grid_selected(None)
+            self.grid.set_selected_row(None)
             return
         value = max(0, min(int(idx), len(self._rows) - 1))
-        self.grid.set_grid_selected(value + self._grid_selected_offset)
+        self.grid.set_selected_row(value + self._selected_row_offset)
 
     def _row_cells(self, row: WatcherEntry):
         word = ((row.next_value & 0xFF) << 8) | (row.value & 0xFF)
         return (
-            GridCell(f"{row.addr:04X}:", Color.ADDRESS.attr()),
-            GridCell(f" {row.value:02X} ", Color.TEXT.attr()),
-            GridCell(f"{word:04X}", Color.ADDRESS.attr()),
-            GridCell(f" {row.value:3d} {row.value:08b} ", Color.TEXT.attr()),
-            GridCell(";", Color.TEXT.attr()),
-            GridCell(row.comment, Color.COMMENT.attr()),
+            f"{row.addr:04X}:",
+            f" {row.value:02X} ",
+            f"{word:04X}",
+            f" {row.value:3d} {row.value:08b} ",
+            ";",
+            row.comment,
         )

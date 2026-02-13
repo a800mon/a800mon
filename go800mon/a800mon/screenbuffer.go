@@ -29,8 +29,10 @@ type rowRangeIndex struct {
 
 func NewScreenBufferInspector(rpc *RpcClient, window *Window) *ScreenBufferInspector {
 	grid := NewGridWidget(window)
-	grid.SetGridColumnGap(0)
-	grid.SetGridSelectionEnabled(false)
+	grid.SetColumnGap(0)
+	grid.SetSelectionEnabled(false)
+	grid.AddColumn("address", 0, ColorAddress.Attr(), nil)
+	grid.AddColumn("content", 0, ColorText.Attr(), nil)
 	return &ScreenBufferInspector{
 		BaseWindowComponent: NewBaseWindowComponent(window),
 		rpc:                 rpc,
@@ -50,7 +52,7 @@ func (s *ScreenBufferInspector) HandleInput(ch int) bool {
 		return false
 	}
 	if !(ch == int(' ') || ch == int('a') || ch == int('A')) {
-		return s.grid.HandleGridNavigationInput(ch)
+		return s.grid.HandleInput(ch)
 	}
 	store.setUseATASCII(!State().UseATASCII)
 	return true
@@ -164,7 +166,7 @@ func (s *ScreenBufferInspector) Render(_force bool) {
 	if drawWidth > contentWidth {
 		drawWidth = contentWidth
 	}
-	gridRows := make([]GridRow, 0, len(rows))
+	gridRows := make([][]string, 0, len(rows))
 	for _, row := range rows {
 		rowLen := len(row.Data)
 		if rowLen > drawWidth {
@@ -176,25 +178,24 @@ func (s *ScreenBufferInspector) Render(_force bool) {
 			leftPad = (drawWidth - rowLen) / 2
 			rightPad = drawWidth - rowLen - leftPad
 		}
-		cells := GridRow{{Text: formatHex16(row.Addr) + ": ", Attr: ColorAddress.Attr()}}
+		content := ""
 		if leftPad > 0 {
-			cells = append(cells, GridCell{Text: strings.Repeat("·", leftPad), Attr: ColorUnused.Attr()})
+			content += strings.Repeat("·", leftPad)
 		}
-		cells = append(cells, renderScreenRuns(row.Data[:rowLen], st.UseATASCII)...)
+		content += renderScreenText(row.Data[:rowLen], st.UseATASCII)
 		if rightPad > 0 {
-			cells = append(cells, GridCell{Text: strings.Repeat("·", rightPad), Attr: ColorUnused.Attr()})
+			content += strings.Repeat("·", rightPad)
 		}
-		gridRows = append(gridRows, cells)
+		gridRows = append(gridRows, []string{formatHex16(row.Addr) + ": ", content})
 	}
-	s.grid.SetGridColumnWidths(nil)
-	s.grid.SetGridRows(gridRows)
-	s.grid.SetGridSelected(nil)
-	s.grid.RenderGrid()
+	s.grid.SetData(gridRows)
+	s.grid.SetSelectedRow(nil)
+	s.grid.Render()
 }
 
-func renderScreenRuns(data []byte, useATASCII bool) []GridCell {
+func renderScreenText(data []byte, useATASCII bool) string {
 	if len(data) == 0 {
-		return nil
+		return ""
 	}
 	if !useATASCII {
 		out := make([]rune, 0, len(data))
@@ -210,31 +211,14 @@ func renderScreenRuns(data []byte, useATASCII bool) []GridCell {
 				out = append(out, '.')
 			}
 		}
-		return []GridCell{{Text: string(out), Attr: ColorText.Attr()}}
+		return string(out)
 	}
-	runs := make([]GridCell, 0, len(data))
-	buf := make([]rune, 0, len(data))
-	curAttr := -1
-	flush := func() {
-		if len(buf) == 0 || curAttr < 0 {
-			return
-		}
-		runs = append(runs, GridCell{Text: string(buf), Attr: ColorText.Attr() | curAttr})
-		buf = buf[:0]
-	}
+	out := make([]rune, 0, len(data))
 	for _, b := range data {
-		ch, attr := renderScreenCharATASCII(b)
-		if curAttr < 0 {
-			curAttr = attr
-		}
-		if attr != curAttr {
-			flush()
-			curAttr = attr
-		}
-		buf = append(buf, ch)
+		ch, _ := renderScreenCharATASCII(b)
+		out = append(out, ch)
 	}
-	flush()
-	return runs
+	return string(out)
 }
 
 func renderScreenCharATASCII(b byte) (rune, int) {

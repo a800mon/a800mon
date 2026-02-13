@@ -3,21 +3,36 @@ import curses
 from .actions import Actions
 from .app import VisualRpcComponent
 from .appstate import state
-from .disasm import DecodedInstruction, assemble_6502_one, disasm_6502_decoded
+from .disasm import (
+    FLOW_MNEMONICS,
+    assemble_6502_one,
+    disasm_6502_decoded,
+)
 from .memory import parse_hex_u16
 from .rpc import RpcException
-from .ui import Color, GridCell, GridWidget
+from .ui import Color, GridWidget
 
-ASM_COMMENT_COL = 18
 FOLLOW_TAG_ID = "follow"
-ASM_EDIT_X = 15
-ASM_EDIT_MAX_LEN = 48
 
 
 class DisassemblyViewer(VisualRpcComponent):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.grid = GridWidget(self.window, col_gap=0)
+        self.grid = GridWidget(self.window, col_gap=1)
+        self.grid.add_column("address", width=5, attr=Color.ADDRESS.attr())
+        self.grid.add_column("opcode1", width=2, attr=Color.TEXT.attr())
+        self.grid.add_column("opcode2", width=2, attr=Color.TEXT.attr())
+        self.grid.add_column("opcode3", width=2, attr=Color.TEXT.attr())
+        self.grid.add_column("mnemonic", width=4, attr=Color.MNEMONIC.attr())
+        self.grid.add_column(
+            "argument",
+            width=14,
+            attr=Color.TEXT.attr(),
+            attr_callback=self._argument_attr,
+        )
+        self.grid.add_column("comment", width=0, attr=Color.COMMENT.attr())
+        self.grid.set_editable_columns_range(4, 6)
+        self.grid.on_cell_input_change = self._on_grid_edit_change
         self._last_addr = None
         self._lines = []
         self._follow = True
@@ -356,15 +371,19 @@ class DisassemblyViewer(VisualRpcComponent):
             suppress = self._input_mode == "addr" and same_row_as_input
             if active_row is None and ins.addr == pc and not suppress:
                 active_row = row_idx
-            cells = [
-                GridCell(f"{ins.addr:04X}:", Color.ADDRESS.attr()),
-                GridCell(" ", Color.TEXT.attr()),
-                GridCell(f"{ins.raw_text:<8} ", Color.TEXT.attr()),
-            ]
-            cells.extend(self._asm_cells(ins))
-            rows.append(tuple(cells))
-        self.grid.set_grid_column_widths(())
-        self.grid.set_grid_rows(rows)
+            op1, op2, op3 = self._opcode_cells(ins.raw)
+            rows.append(
+                (
+                    f"{int(ins.addr) & 0xFFFF:04X}:",
+                    op1,
+                    op2,
+                    op3,
+                    ins.mnemonic,
+                    ins.operand,
+                    ins.comment,
+                )
+            )
+        self.grid.set_data(rows)
         selected_row = None
         if self._follow:
             if active_row is not None:
@@ -387,8 +406,8 @@ class DisassemblyViewer(VisualRpcComponent):
         else:
             self._selected_row_hint = None
             self._selected_addr = None
-        self.grid.set_grid_selected(selected_row)
-        self.grid.set_grid_active_row(active_row)
+        self.grid.set_selected_row(selected_row)
+        self.grid.set_highlighted_row(active_row)
         if self._lines:
             start_addr = int(self._lines[0].addr) & 0xFFFF
             anchor_addr = start_addr
@@ -405,44 +424,28 @@ class DisassemblyViewer(VisualRpcComponent):
             if end_addr > 0x10000:
                 end_addr = 0x10000
             page = max(1, end_addr - start_addr)
-            self.grid.set_grid_virtual_scroll(0x10000, anchor_addr, page)
+            self.grid.set_virtual_scroll(0x10000, anchor_addr, page)
         else:
             offset = (
                 int(self._current_addr) & 0xFFFF
                 if self._current_addr is not None
                 else 0
             )
-            self.grid.set_grid_virtual_scroll(0x10000, offset, 1)
-        self.grid.set_grid_offset(0)
-        self.grid.render_grid()
+            self.grid.set_virtual_scroll(0x10000, offset, 1)
+        self.grid.set_offset(0)
+        if self._input_mode == "edit":
+            row = self._find_row_by_addr(self._edit_addr)
+            if row is not None and self.grid.editing_value != self._input_buffer:
+                self.grid.begin_edit(row, self._input_buffer)
+        self.grid.render()
         if self._input_mode is None:
             return
-        if self._input_mode == "edit":
-            self._render_edit_input()
-            return
-        if self._input_row < ih:
+        if self._input_mode == "addr" and self._input_row < ih:
             input_text = self._input_buffer[-4:].upper().rjust(4, "0")
             attr = Color.ADDRESS.attr() | curses.A_REVERSE
             self.window.cursor = (0, self._input_row)
             self.window.print(input_text, attr=attr)
             self.window.print("  ", attr=attr)
-
-    def _render_edit_input(self):
-        row = self._find_row_by_addr(self._edit_addr)
-        if row is None:
-            row = self._current_selected_row()
-        if row is None or row < 0 or row >= self.window._ih:
-            return
-        text = self._input_buffer[:ASM_EDIT_MAX_LEN]
-        valid = self._assemble_edit_buffer(text) is not None
-        base_attr = Color.TEXT.attr() if valid else Color.INPUT_INVALID.attr()
-        attr = base_attr | curses.A_REVERSE
-        x = ASM_EDIT_X
-        if x >= self.window._iw:
-            return
-        self.window.cursor = (x, row)
-        self.window.print(text, attr=attr)
-        self.window.clear_to_eol()
 
     def _find_row_by_addr(self, addr: int | None) -> int | None:
         if addr is None:
@@ -462,7 +465,7 @@ class DisassemblyViewer(VisualRpcComponent):
             return max(0, min(int(row), vis_count - 1))
         if self._selected_row_hint is not None:
             return max(0, min(int(self._selected_row_hint), vis_count - 1))
-        cur = self.grid.grid_selected
+        cur = self.grid.selected_row
         if cur is None:
             return 0
         return max(0, min(int(cur), vis_count - 1))
@@ -481,7 +484,7 @@ class DisassemblyViewer(VisualRpcComponent):
         if nxt != cur:
             self._selected_row_hint = nxt
             self._selected_addr = int(self._lines[nxt].addr) & 0xFFFF
-            self.grid.set_grid_selected(nxt)
+            self.grid.set_selected_row(nxt)
             return True
         self._selected_row_hint = cur
         self._selected_addr = None
@@ -499,8 +502,18 @@ class DisassemblyViewer(VisualRpcComponent):
             return None
 
     def _update_edit_buffer(self, text: str):
-        self._input_buffer = str(text)[:ASM_EDIT_MAX_LEN]
+        self._input_buffer = str(text)
         self._edit_bytes = self._assemble_edit_buffer(self._input_buffer)
+
+    def _on_grid_edit_change(self, _x: int, y: int, value):
+        if self._input_mode != "edit":
+            return
+        row = self._find_row_by_addr(self._edit_addr)
+        if row is None:
+            row = self._current_selected_row()
+        if row is None or int(y) != int(row):
+            return
+        self._update_edit_buffer(str(value))
 
     def _open_edit_input(self) -> bool:
         row = self._current_selected_row()
@@ -516,6 +529,7 @@ class DisassemblyViewer(VisualRpcComponent):
         self._input_mode = "edit"
         self._replace_on_next_input = False
         self._update_edit_buffer(text)
+        self.grid.begin_edit(row, text)
         self._dispatch(Actions.SET_INPUT_FOCUS, self._handle_focused_input)
         try:
             curses.curs_set(1)
@@ -600,32 +614,21 @@ class DisassemblyViewer(VisualRpcComponent):
         self._follow = bool(enabled)
         self.window.set_tag_active(FOLLOW_TAG_ID, self._follow)
 
-    def _asm_cells(self, ins: DecodedInstruction):
-        if not ins.mnemonic:
-            return []
-        text_attr = Color.TEXT.attr()
-        addr_attr = Color.ADDRESS.attr()
-        cells = [GridCell(ins.mnemonic, Color.MNEMONIC.attr())]
-        core_len = len(ins.mnemonic)
-        if ins.operand:
-            cells.append(GridCell(" ", text_attr))
-            core_len += 1 + len(ins.operand)
-            if ins.flow_target is None or ins.operand_addr_span is None:
-                cells.append(GridCell(ins.operand, text_attr))
-            else:
-                start, end = ins.operand_addr_span
-                if start > 0:
-                    cells.append(GridCell(ins.operand[:start], text_attr))
-                cells.append(GridCell(ins.operand[start:end], addr_attr))
-                if end < len(ins.operand):
-                    cells.append(GridCell(ins.operand[end:], text_attr))
-        if not ins.comment:
-            return cells
-        if core_len < ASM_COMMENT_COL:
-            cells.append(GridCell(" " * (ASM_COMMENT_COL - core_len), text_attr))
-        cells.append(GridCell(" ", text_attr))
-        cells.append(GridCell(ins.comment, Color.COMMENT.attr()))
-        return cells
+    def _opcode_cells(self, raw: bytes):
+        data = bytes(raw)
+        return (
+            f"{data[0]:02X}" if len(data) >= 1 else "",
+            f"{data[1]:02X}" if len(data) >= 2 else "",
+            f"{data[2]:02X}" if len(data) >= 3 else "",
+        )
+
+    def _argument_attr(self, _value, row):
+        if len(row) <= 4:
+            return Color.TEXT.attr()
+        mnemonic = str(row[4]).strip().upper()
+        if mnemonic in FLOW_MNEMONICS:
+            return Color.ADDRESS.attr()
+        return Color.TEXT.attr()
 
     def _close_disassembly_input(self):
         self._replace_on_next_input = False
@@ -633,6 +636,7 @@ class DisassemblyViewer(VisualRpcComponent):
         self._edit_addr = None
         self._edit_snapshot = ""
         self._edit_bytes = None
+        self.grid.end_edit()
         self._dispatch(Actions.SET_INPUT_FOCUS, None)
         try:
             curses.curs_set(0)
@@ -694,17 +698,5 @@ class DisassemblyViewer(VisualRpcComponent):
             self._selected_row_hint = None
             self._close_disassembly_input()
             return True
-        if ch in (curses.KEY_BACKSPACE, 127, 8):
-            text = self._input_buffer[:-1]
-            self._update_edit_buffer(text)
-            return True
-        if ch < 32 or ch > 126:
-            return True
-        text = self._input_buffer
-        if len(text) >= ASM_EDIT_MAX_LEN:
-            return True
-        char = chr(ch)
-        if "a" <= char <= "z":
-            char = char.upper()
-        self._update_edit_buffer(text + char)
+        self.grid.handle_input(ch)
         return True

@@ -2,17 +2,26 @@ import curses
 
 from .app import VisualRpcComponent
 from .appstate import state
-from .disasm import DecodedInstruction, disasm_6502_one_decoded
+from .disasm import FLOW_MNEMONICS, DecodedInstruction, disasm_6502_one_decoded
 from .rpc import RpcException
-from .ui import Color, GridCell, GridWidget
-
-ASM_COMMENT_COL = 18
-
+from .ui import Color, GridWidget
 
 class HistoryViewer(VisualRpcComponent):
     def __init__(self, rpc, window, reverse_order=False):
         super().__init__(rpc, window)
-        self.grid = GridWidget(window, col_gap=0)
+        self.grid = GridWidget(window, col_gap=1)
+        self.grid.add_column("address", width=5, attr=Color.ADDRESS.attr())
+        self.grid.add_column("opcode1", width=2, attr=Color.TEXT.attr())
+        self.grid.add_column("opcode2", width=2, attr=Color.TEXT.attr())
+        self.grid.add_column("opcode3", width=2, attr=Color.TEXT.attr())
+        self.grid.add_column("mnemonic", width=4, attr=Color.MNEMONIC.attr())
+        self.grid.add_column(
+            "argument",
+            width=14,
+            attr=Color.TEXT.attr(),
+            attr_callback=self._argument_attr,
+        )
+        self.grid.add_column("comment", width=0, attr=Color.COMMENT.attr())
         self._reverse_order = bool(reverse_order)
         self._entries = []
         self._can_disasm = True
@@ -50,29 +59,74 @@ class HistoryViewer(VisualRpcComponent):
         selected = None
         if self._reverse_order:
             for entry in reversed(self._entries):
-                rows.append(self._row_cells(entry.pc, self._format_disasm_cached(entry.pc, entry.opbytes)))
+                ins = self._format_disasm_cached(entry.pc, entry.opbytes)
+                op1, op2, op3 = self._opcode_cells(ins.raw)
+                rows.append(
+                    (
+                        f"{entry.pc:04X}:",
+                        op1,
+                        op2,
+                        op3,
+                        ins.mnemonic,
+                        ins.operand,
+                        ins.comment,
+                    )
+                )
             selected = len(rows)
-            rows.append(self._row_cells(next_pc, next_ins))
+            op1, op2, op3 = self._opcode_cells(next_ins.raw)
+            rows.append(
+                (
+                    f"{next_pc:04X}:",
+                    op1,
+                    op2,
+                    op3,
+                    next_ins.mnemonic,
+                    next_ins.operand,
+                    next_ins.comment,
+                )
+            )
         else:
             selected = 0
-            rows.append(self._row_cells(next_pc, next_ins))
+            op1, op2, op3 = self._opcode_cells(next_ins.raw)
+            rows.append(
+                (
+                    f"{next_pc:04X}:",
+                    op1,
+                    op2,
+                    op3,
+                    next_ins.mnemonic,
+                    next_ins.operand,
+                    next_ins.comment,
+                )
+            )
             for entry in self._entries:
-                rows.append(self._row_cells(entry.pc, self._format_disasm_cached(entry.pc, entry.opbytes)))
+                ins = self._format_disasm_cached(entry.pc, entry.opbytes)
+                op1, op2, op3 = self._opcode_cells(ins.raw)
+                rows.append(
+                    (
+                        f"{entry.pc:04X}:",
+                        op1,
+                        op2,
+                        op3,
+                        ins.mnemonic,
+                        ins.operand,
+                        ins.comment,
+                    )
+                )
 
-        self.grid.set_grid_column_widths(())
-        self.grid.set_grid_rows(rows)
+        self.grid.set_data(rows)
         if not rows:
-            self.grid.set_grid_selected(None)
+            self.grid.set_selected_row(None)
         elif self._follow_live:
-            self.grid.set_grid_selected(selected)
-        elif self.grid.grid_selected is None:
-            self.grid.set_grid_selected(selected)
-        self.grid.render_grid()
+            self.grid.set_selected_row(selected)
+        elif self.grid.selected_row is None:
+            self.grid.set_selected_row(selected)
+        self.grid.render()
 
     def handle_input(self, ch):
         if self.app.screen.focused is not self.window:
             return False
-        consumed = self.grid.handle_grid_navigation_input(ch)
+        consumed = self.grid.handle_input(ch)
         if not consumed:
             return False
         if self._reverse_order:
@@ -114,37 +168,18 @@ class HistoryViewer(VisualRpcComponent):
             self._decoded_cache.clear()
         return ins
 
-    def _row_cells(self, pc: int, ins: DecodedInstruction, prefix: str = ""):
-        cells = []
-        if prefix:
-            cells.append(GridCell(prefix, Color.TEXT.attr()))
-        cells.append(GridCell(f"{pc:04X}:", Color.ADDRESS.attr()))
-        cells.append(GridCell(" ", Color.TEXT.attr()))
-        cells.append(GridCell(f"{ins.raw_text:<8} ", Color.TEXT.attr()))
-        cells.extend(self._asm_cells(ins))
-        return tuple(cells)
+    def _opcode_cells(self, raw: bytes):
+        data = bytes(raw)
+        return (
+            f"{data[0]:02X}" if len(data) >= 1 else "",
+            f"{data[1]:02X}" if len(data) >= 2 else "",
+            f"{data[2]:02X}" if len(data) >= 3 else "",
+        )
 
-    def _asm_cells(self, ins: DecodedInstruction):
-        if not ins.mnemonic:
-            return []
-        cells = [GridCell(ins.mnemonic, Color.MNEMONIC.attr())]
-        core_len = len(ins.mnemonic)
-        if ins.operand:
-            cells.append(GridCell(" ", Color.TEXT.attr()))
-            core_len += 1 + len(ins.operand)
-            if ins.flow_target is None or ins.operand_addr_span is None:
-                cells.append(GridCell(ins.operand, Color.TEXT.attr()))
-            else:
-                start, end = ins.operand_addr_span
-                if start > 0:
-                    cells.append(GridCell(ins.operand[:start], Color.TEXT.attr()))
-                cells.append(GridCell(ins.operand[start:end], Color.ADDRESS.attr()))
-                if end < len(ins.operand):
-                    cells.append(GridCell(ins.operand[end:], Color.TEXT.attr()))
-        if not ins.comment:
-            return cells
-        if core_len < ASM_COMMENT_COL:
-            cells.append(GridCell(" " * (ASM_COMMENT_COL - core_len), Color.TEXT.attr()))
-        cells.append(GridCell(" ", Color.TEXT.attr()))
-        cells.append(GridCell(ins.comment, Color.COMMENT.attr()))
-        return cells
+    def _argument_attr(self, _value, row):
+        if len(row) <= 4:
+            return Color.TEXT.attr()
+        mnemonic = str(row[4]).strip().upper()
+        if mnemonic in FLOW_MNEMONICS:
+            return Color.ADDRESS.attr()
+        return Color.TEXT.attr()

@@ -51,19 +51,26 @@ const (
 const (
 	inputModeAddr = "addr"
 	inputModeEdit = "edit"
-	asmEditX      = 15
-	asmEditMaxLen = 48
 )
 
 func NewDisassemblyViewer(rpc *RpcClient, window *Window) *DisassemblyViewer {
 	grid := NewGridWidget(window)
-	grid.SetGridColumnGap(0)
+	grid.SetColumnGap(1)
+	grid.AddColumn("address", 5, ColorAddress.Attr(), nil)
+	grid.AddColumn("opcode1", 2, ColorText.Attr(), nil)
+	grid.AddColumn("opcode2", 2, ColorText.Attr(), nil)
+	grid.AddColumn("opcode3", 2, ColorText.Attr(), nil)
+	grid.AddColumn("mnemonic", 4, ColorMnemonic.Attr(), nil)
+	grid.AddColumn("argument", 14, ColorText.Attr(), disassemblyArgumentAttr)
+	grid.AddColumn("comment", 0, ColorComment.Attr(), nil)
+	grid.SetEditableColumnsRange(4, 6)
 	v := &DisassemblyViewer{
 		BaseWindowComponent: NewBaseWindowComponent(window),
 		rpc:                 rpc,
 		grid:                grid,
 		follow:              true,
 	}
+	grid.SetOnCellInputChange(v.onGridEditChange)
 	v.addressInput = NewAddressInputWidget(window)
 	v.addressInput.SetColor(ColorAddress)
 	return v
@@ -198,22 +205,24 @@ func (d *DisassemblyViewer) Render(_force bool) {
 	st := State()
 	w := d.Window()
 	w.SetTagActive("follow", d.follow)
-	gridRows := make([]GridRow, 0, len(st.DisassemblyRows))
+	gridRows := make([][]string, 0, len(st.DisassemblyRows))
 	activeRow := -1
 	for i, row := range st.DisassemblyRows {
 		if activeRow < 0 && row.Addr == st.CPU.PC && !(st.InputFocus && i == 0) {
 			activeRow = i
 		}
-		cells := GridRow{
-			{Text: formatHex16(row.Addr) + ":", Attr: ColorAddress.Attr()},
-			{Text: " ", Attr: ColorText.Attr()},
-			{Text: padRight(row.RawText, 8) + " ", Attr: ColorText.Attr()},
-		}
-		cells = append(cells, asmRowCells(row)...)
-		gridRows = append(gridRows, cells)
+		op1, op2, op3 := opcodeColumns(row.RawText)
+		gridRows = append(gridRows, []string{
+			formatHex16(row.Addr) + ":",
+			op1,
+			op2,
+			op3,
+			row.Mnemonic,
+			row.Operand,
+			row.Comment,
+		})
 	}
-	d.grid.SetGridColumnWidths(nil)
-	d.grid.SetGridRows(gridRows)
+	d.grid.SetData(gridRows)
 	visCount := min(len(st.DisassemblyRows), w.Height())
 	selectedRow := -1
 	if d.hasSelectedAddr {
@@ -254,17 +263,17 @@ func (d *DisassemblyViewer) Render(_force bool) {
 	}
 	if selectedRow >= 0 && visCount > 0 {
 		idx := selectedRow
-		d.grid.SetGridSelected(&idx)
+		d.grid.SetSelectedRow(&idx)
 	} else {
 		d.hasSelectedAddr = false
 		d.hasSelectedRowHint = false
-		d.grid.SetGridSelected(nil)
+		d.grid.SetSelectedRow(nil)
 	}
 	if activeRow >= 0 {
 		idx := activeRow
-		d.grid.SetGridActiveRow(&idx)
+		d.grid.SetHighlightedRow(&idx)
 	} else {
-		d.grid.SetGridActiveRow(nil)
+		d.grid.SetHighlightedRow(nil)
 	}
 	if len(st.DisassemblyRows) > 0 {
 		start := int(st.DisassemblyRows[0].Addr)
@@ -291,17 +300,22 @@ func (d *DisassemblyViewer) Render(_force bool) {
 		if page < 1 {
 			page = 1
 		}
-		d.grid.SetGridVirtualScroll(0x10000, anchor, page)
+		d.grid.SetVirtualScroll(0x10000, anchor, page)
 	} else {
-		d.grid.SetGridVirtualScroll(0x10000, int(d.currentAddr), 1)
+		d.grid.SetVirtualScroll(0x10000, int(d.currentAddr), 1)
 	}
-	d.grid.SetGridOffset(0)
-	d.grid.RenderGrid()
+	d.grid.SetOffset(0)
+	if st.InputFocus && d.inputMode == inputModeEdit {
+		row, ok := d.findRowByAddr(d.editAddr)
+		if ok && d.grid.EditingValue() != st.InputBuffer {
+			d.grid.BeginEdit(row, st.InputBuffer)
+		}
+	}
+	d.grid.Render()
 	if !st.InputFocus {
 		return
 	}
-	if d.inputMode == inputModeEdit {
-		d.renderEditInput(st.InputBuffer)
+	if d.inputMode != inputModeAddr {
 		return
 	}
 	text := strings.ToUpper(st.InputBuffer)
@@ -639,7 +653,6 @@ func (d *DisassemblyViewer) handleAddressInput(ch int) bool {
 }
 
 func (d *DisassemblyViewer) handleEditInput(ch int) bool {
-	st := State()
 	if ch == 27 {
 		_ = d.dispatcher.Dispatch(ActionSetInputBuffer, d.editSnapshot)
 		d.closeInput()
@@ -657,23 +670,7 @@ func (d *DisassemblyViewer) handleEditInput(ch int) bool {
 		d.closeInput()
 		return true
 	}
-	if ch == KeyBackspace() || ch == 127 || ch == 8 {
-		text := trimLastRune(st.InputBuffer)
-		d.updateEditBuffer(text)
-		return true
-	}
-	if ch < 32 || ch > 126 {
-		return true
-	}
-	text := st.InputBuffer
-	if len([]rune(text)) >= asmEditMaxLen {
-		return true
-	}
-	char := rune(ch)
-	if char >= 'a' && char <= 'z' {
-		char -= 32
-	}
-	d.updateEditBuffer(text + string(char))
+	d.grid.HandleInput(ch)
 	return true
 }
 
@@ -702,6 +699,24 @@ func (d *DisassemblyViewer) updateAddressInput(text string) {
 func (d *DisassemblyViewer) updateEditBuffer(text string) {
 	_ = d.dispatcher.Dispatch(ActionSetInputBuffer, text)
 	d.editBytes = d.assembleEditBuffer(text)
+}
+
+func (d *DisassemblyViewer) onGridEditChange(_x int, y int, value string) {
+	if d.inputMode != inputModeEdit {
+		return
+	}
+	row, ok := d.findRowByAddr(d.editAddr)
+	if !ok {
+		var rowOK bool
+		row, rowOK = d.currentSelectedRow()
+		if !rowOK {
+			return
+		}
+	}
+	if y != row {
+		return
+	}
+	d.updateEditBuffer(value)
 }
 
 func (d *DisassemblyViewer) assembleEditBuffer(text string) []byte {
@@ -741,6 +756,7 @@ func (d *DisassemblyViewer) openEditInput() bool {
 	d.inputMode = inputModeEdit
 	d.replaceOnNextInput = false
 	d.updateEditBuffer(text)
+	d.grid.BeginEdit(row, text)
 	_ = d.dispatcher.Dispatch(ActionSetInputTarget, "disassembly")
 	_ = d.dispatcher.Dispatch(ActionSetInputFocus, true)
 	return true
@@ -753,40 +769,10 @@ func (d *DisassemblyViewer) closeInput() {
 	d.editAddr = 0
 	d.editSnapshot = ""
 	d.editBytes = nil
+	d.grid.EndEdit()
 	d.addressInput.Deactivate()
 	_ = d.dispatcher.Dispatch(ActionSetInputTarget, "")
 	_ = d.dispatcher.Dispatch(ActionSetInputFocus, false)
-}
-
-func (d *DisassemblyViewer) renderEditInput(input string) {
-	row, ok := d.findRowByAddr(d.editAddr)
-	if !ok {
-		var rowOK bool
-		row, rowOK = d.currentSelectedRow()
-		if !rowOK {
-			return
-		}
-	}
-	w := d.Window()
-	if row < 0 || row >= w.Height() {
-		return
-	}
-	text := input
-	if len([]rune(text)) > asmEditMaxLen {
-		text = string([]rune(text)[:asmEditMaxLen])
-	}
-	valid := len(d.assembleEditBuffer(text)) > 0
-	attr := ColorText.Attr()
-	if !valid {
-		attr = ColorInputInvalid.Attr()
-	}
-	attr |= AttrReverse()
-	if asmEditX >= w.Width() {
-		return
-	}
-	w.Cursor(asmEditX, row)
-	w.Print(text, attr, false)
-	w.FillToEOL(' ', attr)
 }
 
 func (d *DisassemblyViewer) findRowByAddr(addr uint16) (int, bool) {
@@ -830,7 +816,7 @@ func (d *DisassemblyViewer) currentSelectedRow() (int, bool) {
 		}
 		return idx, true
 	}
-	if sel, ok := d.grid.GridSelected(); ok {
+	if sel, ok := d.grid.SelectedRow(); ok {
 		if sel < 0 {
 			sel = 0
 		}
@@ -867,7 +853,7 @@ func (d *DisassemblyViewer) moveSelectedRows(delta int) bool {
 		d.selectedAddr = rows[next].Addr
 		d.hasSelectedAddr = true
 		idx := next
-		d.grid.SetGridSelected(&idx)
+		d.grid.SetSelectedRow(&idx)
 		return true
 	}
 	d.selectedRowHint = cur
@@ -883,6 +869,16 @@ func findAddrIndex(rows []disasm.DecodedInstruction, addr uint16) int {
 		}
 	}
 	return -1
+}
+
+func disassemblyArgumentAttr(_value string, row []string) int {
+	if len(row) <= 4 {
+		return ColorText.Attr()
+	}
+	if _, ok := historyFlowMnemonics[strings.ToUpper(strings.TrimSpace(row[4]))]; ok {
+		return ColorAddress.Attr()
+	}
+	return ColorText.Attr()
 }
 
 func buildDisasmSnapshot(pc uint16, addr uint16, rows []DisasmRow) string {

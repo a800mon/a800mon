@@ -25,7 +25,13 @@ type WatchersViewer struct {
 
 func NewWatchersViewer(rpc *RpcClient, window *Window) *WatchersViewer {
 	grid := NewGridWidget(window)
-	grid.SetGridColumnGap(0)
+	grid.SetColumnGap(0)
+	grid.AddColumn("addr", 0, ColorAddress.Attr(), nil)
+	grid.AddColumn("value", 0, ColorText.Attr(), nil)
+	grid.AddColumn("next", 0, ColorAddress.Attr(), nil)
+	grid.AddColumn("bits", 0, ColorText.Attr(), nil)
+	grid.AddColumn("sep", 0, ColorText.Attr(), nil)
+	grid.AddColumn("comment", 0, ColorComment.Attr(), nil)
 	v := &WatchersViewer{
 		BaseWindowComponent: NewBaseWindowComponent(grid.Window()),
 		rpc:                 rpc,
@@ -41,7 +47,7 @@ func (v *WatchersViewer) BindInput(screen *Screen, dispatcher *ActionDispatcher)
 	v.screen = screen
 	v.dispatcher = dispatcher
 	v.Window().WindowCallbacks(func() {
-		v.grid.SetGridSelected(nil)
+		v.grid.SetSelectedRow(nil)
 		v.selected = nil
 	}, nil)
 }
@@ -113,11 +119,11 @@ func (v *WatchersViewer) Render(_force bool) {
 		return
 	}
 	inputActive := st.InputFocus && st.InputTarget == "watchers"
-	rows := make([]GridRow, 0, len(v.rows)+2)
+	rows := make([][]string, 0, len(v.rows)+2)
 	rowBase := 0
 	if inputActive {
 		rowBase = 1
-		rows = append(rows, GridRow{{Text: "", Attr: ColorText.Attr()}})
+		rows = append(rows, []string{""})
 	}
 	pendingOffset := 0
 	if v.pending != nil {
@@ -129,15 +135,14 @@ func (v *WatchersViewer) Render(_force bool) {
 	}
 
 	v.gridSelectedShift = rowBase + pendingOffset
-	v.grid.SetGridColumnWidths(nil)
-	v.grid.SetGridRows(rows)
+	v.grid.SetData(rows)
 	if v.selected == nil {
-		v.grid.SetGridSelected(nil)
+		v.grid.SetSelectedRow(nil)
 	} else {
 		idx := *v.selected + v.gridSelectedShift
-		v.grid.SetGridSelected(&idx)
+		v.grid.SetSelectedRow(&idx)
 	}
-	v.grid.RenderGrid()
+	v.grid.Render()
 
 	if inputActive {
 		w.Cursor(0, 0)
@@ -176,7 +181,7 @@ func (v *WatchersViewer) HandleInput(ch int) bool {
 		return true
 	}
 
-	if v.grid.HandleGridNavigationInput(ch) {
+	if v.grid.HandleInput(ch) {
 		offset := 0
 		if st.InputFocus && st.InputTarget == "watchers" {
 			offset++
@@ -272,7 +277,7 @@ func (v *WatchersViewer) deleteSelected() {
 }
 
 func (v *WatchersViewer) syncSelectedFromGrid(offset int) {
-	idx, ok := v.grid.GridSelected()
+	idx, ok := v.grid.SelectedRow()
 	if !ok {
 		v.selected = nil
 		return
@@ -303,15 +308,15 @@ func (v *WatchersViewer) clampSelected(rowCount int) {
 	v.selected = &idx
 }
 
-func (v *WatchersViewer) watcherRowCells(row WatcherRow) GridRow {
+func (v *WatchersViewer) watcherRowCells(row WatcherRow) []string {
 	word := (uint16(row.NextValue) << 8) | uint16(row.Value)
-	return GridRow{
-		{Text: formatHex16(row.Addr) + ":", Attr: ColorAddress.Attr()},
-		{Text: fmt.Sprintf(" %02X ", row.Value), Attr: ColorText.Attr()},
-		{Text: fmt.Sprintf("%04X", word), Attr: ColorAddress.Attr()},
-		{Text: fmt.Sprintf(" %3d %08b ", row.Value, row.Value), Attr: ColorText.Attr()},
-		{Text: ";", Attr: ColorText.Attr()},
-		{Text: row.Comment, Attr: ColorComment.Attr()},
+	return []string{
+		formatHex16(row.Addr) + ":",
+		fmt.Sprintf(" %02X ", row.Value),
+		fmt.Sprintf("%04X", word),
+		fmt.Sprintf(" %3d %08b ", row.Value, row.Value),
+		";",
+		row.Comment,
 	}
 }
 

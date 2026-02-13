@@ -26,6 +26,8 @@ type DisplayListViewer struct {
 
 func NewDisplayListViewer(rpc *RpcClient, window *Window) *DisplayListViewer {
 	grid := NewGridWidget(window)
+	grid.AddColumn("address", 5, ColorAddress.Attr(), nil)
+	grid.AddColumn("description", 0, ColorText.Attr(), nil)
 	return &DisplayListViewer{
 		BaseWindowComponent: NewBaseWindowComponent(grid.Window()),
 		rpc:                 rpc,
@@ -72,29 +74,25 @@ func (v *DisplayListViewer) Update(ctx context.Context) (bool, error) {
 func (v *DisplayListViewer) Render(_force bool) {
 	st := State()
 	g := v.grid
-	rows := make([]GridRow, 0, len(st.DList.Entries))
+	rows := make([][]string, 0, len(st.DList.Entries))
 	for _, c := range st.DList.Compacted() {
 		addr := fmt.Sprintf("%04X:", c.Entry.Addr)
 		desc := c.Entry.Description()
 		if c.Count > 1 {
 			desc = fmt.Sprintf("%dx %s", c.Count, c.Entry.Description())
 		}
-		rows = append(rows, GridRow{
-			{Text: addr, Attr: ColorAddress.Attr()},
-			{Text: desc, Attr: ColorText.Attr()},
-		})
+		rows = append(rows, []string{addr, desc})
 	}
-	g.SetGridColumnWidths([]int{5, 0})
-	g.SetGridRows(rows)
+	g.SetData(rows)
 	if len(rows) > 0 {
-		if _, ok := g.GridSelected(); !ok {
+		if _, ok := g.SelectedRow(); !ok {
 			idx := 0
-			g.SetGridSelected(&idx)
+			g.SetSelectedRow(&idx)
 		}
 	} else {
-		g.SetGridSelected(nil)
+		g.SetSelectedRow(nil)
 	}
-	g.RenderGrid()
+	g.Render()
 }
 
 func (v *DisplayListViewer) HandleInput(ch int) bool {
@@ -105,5 +103,5 @@ func (v *DisplayListViewer) HandleInput(ch int) bool {
 	if w.screen == nil || w.screen.Focused() != w {
 		return false
 	}
-	return v.grid.HandleGridNavigationInput(ch)
+	return v.grid.HandleInput(ch)
 }

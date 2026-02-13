@@ -8,7 +8,7 @@ from .datastructures import BreakpointClauseEntry, BreakpointConditionEntry
 from .inputwidget import InputWidget
 from .memory import parse_hex
 from .rpc import RpcException
-from .ui import Color, DialogInput, DialogWidget, GridCell, GridWidget
+from .ui import Color, DialogInput, DialogWidget, GridWidget
 
 BP_CONDITION_TYPES = {
     "pc": 1,
@@ -158,11 +158,13 @@ class BreakpointsViewer(VisualRpcComponent):
     def __init__(self, rpc, window):
         super().__init__(rpc, window)
         self.grid = GridWidget(window, col_gap=0)
+        self.grid.add_column("index", width=0, attr=Color.ADDRESS.attr())
+        self.grid.add_column("expr", width=0, attr=Color.TEXT.attr())
         self._last_snapshot = None
         self._last_state_seq = None
         self._enabled = False
         self._rows = []
-        self._grid_selected_offset = 0
+        self._selected_row_offset = 0
         self._input_snapshot = ""
         self._input_active = False
         self._input_invalid = False
@@ -216,28 +218,25 @@ class BreakpointsViewer(VisualRpcComponent):
         input_active = self._input_active
         row_base = 1 if (input_active or dialog_active) else 0
         self.window.set_tag_active("bp_enabled", self._enabled)
-        self._grid_selected_offset = row_base
+        self._selected_row_offset = row_base
 
         rows = []
         if row_base:
-            rows.append((GridCell("", Color.TEXT.attr()),))
+            rows.append(("", ""))
 
         if not self._rows:
-            rows.append((GridCell("No breakpoint clauses.", Color.COMMENT.attr()),))
-            self.grid.set_grid_selected(None)
+            rows.append(("", "No breakpoint clauses."))
+            self.grid.set_selected_row(None)
         else:
             for idx, clause in enumerate(self._rows, start=1):
-                cells = [GridCell(f"#{idx:02d} ", Color.ADDRESS.attr())]
-                cells.extend(self._clause_cells(clause))
-                rows.append(tuple(cells))
+                rows.append((f"#{idx:02d} ", self._format_clause_text(clause)))
             selected = self._selected_index()
             if selected is None:
-                self.grid.set_grid_selected(None)
+                self.grid.set_selected_row(None)
             else:
-                self.grid.set_grid_selected(selected + self._grid_selected_offset)
-        self.grid.set_grid_column_widths(())
-        self.grid.set_grid_rows(rows)
-        self.grid.render_grid()
+                self.grid.set_selected_row(selected + self._selected_row_offset)
+        self.grid.set_data(rows)
+        self.grid.render()
 
         if dialog_active:
             self._clear_dialog.render()
@@ -248,30 +247,13 @@ class BreakpointsViewer(VisualRpcComponent):
             self.window.print(self._input_widget.buffer, attr=attr)
             self.window.fill_to_eol(attr=attr)
 
-    def _clause_cells(self, clause: BreakpointClauseEntry):
-        cells = []
-        for idx, cond in enumerate(clause.conditions):
-            if idx:
-                cells.append(GridCell(" AND ", Color.TEXT.attr()))
-            cells.extend(self._condition_cells(cond))
-        return cells
-
-    def _condition_cells(self, cond: BreakpointConditionEntry):
-        cells = []
-        op = BP_OP_NAMES.get(cond.op, f"op{cond.op}")
-        if cond.cond_type == 9:
-            cells.append(GridCell("mem[", Color.TEXT.attr()))
-            cells.append(GridCell(f"{cond.addr:04X}", Color.ADDRESS.attr()))
-            cells.append(GridCell("]", Color.TEXT.attr()))
-        else:
-            name = BP_TYPE_NAMES.get(cond.cond_type, f"type{cond.cond_type}")
-            cells.append(GridCell(name, Color.TEXT.attr()))
-        cells.append(GridCell(f" {op} ", Color.TEXT.attr()))
-        if cond.cond_type in (2, 3, 4, 5):
-            cells.append(GridCell(f"{cond.value:02X}", Color.ADDRESS.attr()))
-        else:
-            cells.append(GridCell(f"{cond.value:04X}", Color.ADDRESS.attr()))
-        return cells
+    def _format_clause_text(self, clause):
+        if not isinstance(clause, BreakpointClauseEntry):
+            return str(clause)
+        parts = []
+        for cond in clause.conditions:
+            parts.append(format_bp_condition(cond))
+        return " AND ".join(parts)
 
     def handle_input(self, ch):
         if self._clear_dialog.active:
@@ -284,7 +266,7 @@ class BreakpointsViewer(VisualRpcComponent):
         if ch == ord("/"):
             self._open_input("")
             return True
-        if self.grid.handle_grid_navigation_input(ch):
+        if self.grid.handle_input(ch):
             return True
         if ch in (curses.KEY_DC, 330):
             self._queue_delete_selected()
@@ -422,10 +404,10 @@ class BreakpointsViewer(VisualRpcComponent):
             self._set_selected_index(row_count - 1)
 
     def _selected_index(self):
-        idx = self.grid.grid_selected
+        idx = self.grid.selected_row
         if idx is None:
             return None
-        idx = int(idx) - self._grid_selected_offset
+        idx = int(idx) - self._selected_row_offset
         if idx < 0:
             return None
         if idx >= len(self._rows):
@@ -434,7 +416,7 @@ class BreakpointsViewer(VisualRpcComponent):
 
     def _set_selected_index(self, idx: int | None):
         if idx is None or len(self._rows) == 0:
-            self.grid.set_grid_selected(None)
+            self.grid.set_selected_row(None)
             return
         value = max(0, min(int(idx), len(self._rows) - 1))
-        self.grid.set_grid_selected(value + self._grid_selected_offset)
+        self.grid.set_selected_row(value + self._selected_row_offset)

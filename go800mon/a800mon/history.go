@@ -8,6 +8,11 @@ import (
 	"go800mon/internal/disasm"
 )
 
+var historyFlowMnemonics = map[string]struct{}{
+	"JMP": {}, "JSR": {}, "BCC": {}, "BCS": {}, "BEQ": {}, "BMI": {},
+	"BNE": {}, "BPL": {}, "BVC": {}, "BVS": {}, "BRA": {},
+}
+
 type HistoryViewer struct {
 	BaseWindowComponent
 	rpc          *RpcClient
@@ -21,7 +26,14 @@ type HistoryViewer struct {
 
 func NewHistoryViewer(rpc *RpcClient, window *Window, reverseOrder bool) *HistoryViewer {
 	grid := NewGridWidget(window)
-	grid.SetGridColumnGap(0)
+	grid.SetColumnGap(1)
+	grid.AddColumn("address", 5, ColorAddress.Attr(), nil)
+	grid.AddColumn("opcode1", 2, ColorText.Attr(), nil)
+	grid.AddColumn("opcode2", 2, ColorText.Attr(), nil)
+	grid.AddColumn("opcode3", 2, ColorText.Attr(), nil)
+	grid.AddColumn("mnemonic", 4, ColorMnemonic.Attr(), nil)
+	grid.AddColumn("argument", 14, ColorText.Attr(), historyArgumentAttr)
+	grid.AddColumn("comment", 0, ColorComment.Attr(), nil)
 	return &HistoryViewer{
 		BaseWindowComponent: NewBaseWindowComponent(grid.Window()),
 		rpc:                 rpc,
@@ -72,10 +84,10 @@ func (h *HistoryViewer) Render(_force bool) {
 	st := State()
 	next := h.nextRow
 	if next == nil {
-		row := DisasmRow{Addr: st.CPU.PC, RawText: "", AsmText: st.CPUDisasm}
+		row := DisasmRow{Addr: st.CPU.PC, RawText: "", Comment: st.CPUDisasm}
 		next = &row
 	}
-	rows := make([]GridRow, 0, len(st.History)+1)
+	rows := make([][]string, 0, len(st.History)+1)
 	selected := 0
 	if h.reverseOrder {
 		for _, e := range reverseHistory(st.History) {
@@ -90,16 +102,15 @@ func (h *HistoryViewer) Render(_force bool) {
 		}
 		selected = 0
 	}
-	h.grid.SetGridColumnWidths(nil)
-	h.grid.SetGridRows(rows)
+	h.grid.SetData(rows)
 	if len(rows) == 0 {
-		h.grid.SetGridSelected(nil)
+		h.grid.SetSelectedRow(nil)
 	} else if h.followLive {
-		h.grid.SetGridSelected(&selected)
-	} else if _, ok := h.grid.GridSelected(); !ok {
-		h.grid.SetGridSelected(&selected)
+		h.grid.SetSelectedRow(&selected)
+	} else if _, ok := h.grid.SelectedRow(); !ok {
+		h.grid.SetSelectedRow(&selected)
 	}
-	h.grid.RenderGrid()
+	h.grid.Render()
 }
 
 func (h *HistoryViewer) HandleInput(ch int) bool {
@@ -110,7 +121,7 @@ func (h *HistoryViewer) HandleInput(ch int) bool {
 	if w == nil || w.screen == nil || w.screen.Focused() != w {
 		return false
 	}
-	if !h.grid.HandleGridNavigationInput(ch) {
+	if !h.grid.HandleInput(ch) {
 		return false
 	}
 	if h.reverseOrder {
@@ -138,17 +149,21 @@ func (h *HistoryViewer) decodeHistoryRow(entry CpuHistoryEntry) DisasmRow {
 	return row
 }
 
-func (h *HistoryViewer) historyRowCells(entry CpuHistoryEntry) GridRow {
+func (h *HistoryViewer) historyRowCells(entry CpuHistoryEntry) []string {
 	return h.decodedRowCells(h.decodeHistoryRow(entry))
 }
 
-func (h *HistoryViewer) decodedRowCells(row DisasmRow) GridRow {
-	cells := make(GridRow, 0, 6)
-	cells = append(cells, GridCell{Text: formatHex16(row.Addr) + ":", Attr: ColorAddress.Attr()})
-	cells = append(cells, GridCell{Text: " ", Attr: ColorText.Attr()})
-	cells = append(cells, GridCell{Text: padRight(row.RawText, 8) + " ", Attr: ColorText.Attr()})
-	cells = append(cells, asmRowCells(row)...)
-	return cells
+func (h *HistoryViewer) decodedRowCells(row DisasmRow) []string {
+	op1, op2, op3 := opcodeColumns(row.RawText)
+	return []string{
+		formatHex16(row.Addr) + ":",
+		op1,
+		op2,
+		op3,
+		row.Mnemonic,
+		row.Operand,
+		row.Comment,
+	}
 }
 
 func disasmToRow(ins disasm.DecodedInstruction) DisasmRow {
@@ -178,4 +193,31 @@ func reverseHistory(entries []CpuHistoryEntry) []CpuHistoryEntry {
 		out = append(out, entries[i])
 	}
 	return out
+}
+
+func opcodeColumns(rawText string) (string, string, string) {
+	parts := strings.Fields(rawText)
+	op1 := ""
+	op2 := ""
+	op3 := ""
+	if len(parts) > 0 {
+		op1 = parts[0]
+	}
+	if len(parts) > 1 {
+		op2 = parts[1]
+	}
+	if len(parts) > 2 {
+		op3 = parts[2]
+	}
+	return op1, op2, op3
+}
+
+func historyArgumentAttr(_value string, row []string) int {
+	if len(row) <= 4 {
+		return ColorText.Attr()
+	}
+	if _, ok := historyFlowMnemonics[strings.ToUpper(strings.TrimSpace(row[4]))]; ok {
+		return ColorAddress.Attr()
+	}
+	return ColorText.Attr()
 }

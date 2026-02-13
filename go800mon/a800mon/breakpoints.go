@@ -83,7 +83,9 @@ type BreakpointsViewer struct {
 
 func NewBreakpointsViewer(rpc *RpcClient, window *Window) *BreakpointsViewer {
 	grid := NewGridWidget(window)
-	grid.SetGridColumnGap(0)
+	grid.SetColumnGap(0)
+	grid.AddColumn("index", 0, ColorAddress.Attr(), nil)
+	grid.AddColumn("condition", 0, ColorText.Attr(), nil)
 	v := &BreakpointsViewer{
 		BaseWindowComponent: NewBaseWindowComponent(grid.Window()),
 		rpc:                 rpc,
@@ -194,31 +196,30 @@ func (v *BreakpointsViewer) Render(_force bool) {
 		rowBase = 1
 	}
 	w.SetTagActive("bp_enabled", v.enabled)
-	rows := make([]GridRow, 0, len(v.clauses)+2)
+	rows := make([][]string, 0, len(v.clauses)+2)
 	if rowBase > 0 {
-		rows = append(rows, GridRow{{Text: "", Attr: ColorText.Attr()}})
+		rows = append(rows, []string{""})
 	}
 
 	if len(v.clauses) == 0 {
-		rows = append(rows, GridRow{{Text: "No breakpoint clauses.", Attr: ColorComment.Attr()}})
-		g.SetGridSelected(nil)
+		rows = append(rows, []string{"", "No breakpoint clauses."})
+		g.SetSelectedRow(nil)
 	} else {
 		for i, clause := range v.clauses {
-			cells := make([]GridCell, 0, 16)
-			cells = append(cells, GridCell{Text: fmt.Sprintf("#%02d ", i+1), Attr: ColorAddress.Attr()})
-			cells = append(cells, v.clauseCells(clause)...)
-			rows = append(rows, cells)
+			rows = append(rows, []string{
+				fmt.Sprintf("#%02d ", i+1),
+				v.formatClauseText(clause),
+			})
 		}
 		if v.selected == nil {
-			g.SetGridSelected(nil)
+			g.SetSelectedRow(nil)
 		} else {
 			idx := *v.selected + rowBase
-			g.SetGridSelected(&idx)
+			g.SetSelectedRow(&idx)
 		}
 	}
-	g.SetGridColumnWidths(nil)
-	g.SetGridRows(rows)
-	g.RenderGrid()
+	g.SetData(rows)
+	g.Render()
 
 	if dialogActive {
 		v.clearDialog.Render()
@@ -252,8 +253,8 @@ func (v *BreakpointsViewer) HandleInput(ch int) bool {
 		v.openInput("")
 		return true
 	}
-	if v.grid.HandleGridNavigationInput(ch) {
-		idx, ok := v.grid.GridSelected()
+	if v.grid.HandleInput(ch) {
+		idx, ok := v.grid.SelectedRow()
 		if !ok {
 			v.selected = nil
 		} else {
@@ -278,34 +279,28 @@ func (v *BreakpointsViewer) HandleInput(ch int) bool {
 	return false
 }
 
-func (v *BreakpointsViewer) clauseCells(clause BreakpointClauseRow) []GridCell {
-	cells := make([]GridCell, 0, len(clause.Conditions)*4)
+func (v *BreakpointsViewer) formatClauseText(clause BreakpointClauseRow) string {
+	parts := make([]string, 0, len(clause.Conditions))
 	for i, cond := range clause.Conditions {
-		if i > 0 {
-			cells = append(cells, GridCell{Text: " AND ", Attr: ColorText.Attr()})
-		}
-		cells = append(cells, v.conditionCells(cond)...)
+		_ = i
+		parts = append(parts, v.formatConditionText(cond))
 	}
-	return cells
+	return strings.Join(parts, " AND ")
 }
 
-func (v *BreakpointsViewer) conditionCells(cond BreakpointConditionRow) []GridCell {
-	cells := make([]GridCell, 0, 5)
+func (v *BreakpointsViewer) formatConditionText(cond BreakpointConditionRow) string {
 	op := bpOpSymbol(cond.Op)
 	if cond.CondType == 9 {
-		cells = append(cells, GridCell{Text: "mem[", Attr: ColorText.Attr()})
-		cells = append(cells, GridCell{Text: formatHex16(cond.Addr), Attr: ColorAddress.Attr()})
-		cells = append(cells, GridCell{Text: "]", Attr: ColorText.Attr()})
-	} else {
-		cells = append(cells, GridCell{Text: bpTypeName(cond.CondType), Attr: ColorText.Attr()})
+		if cond.CondType == 2 || cond.CondType == 3 || cond.CondType == 4 || cond.CondType == 5 {
+			return fmt.Sprintf("mem[%s] %s %02X", formatHex16(cond.Addr), op, cond.Value)
+		}
+		return fmt.Sprintf("mem[%s] %s %s", formatHex16(cond.Addr), op, formatHex16(cond.Value))
 	}
-	cells = append(cells, GridCell{Text: " " + op + " ", Attr: ColorText.Attr()})
+	left := bpTypeName(cond.CondType)
 	if cond.CondType == 2 || cond.CondType == 3 || cond.CondType == 4 || cond.CondType == 5 {
-		cells = append(cells, GridCell{Text: fmt.Sprintf("%02X", cond.Value), Attr: ColorAddress.Attr()})
-		return cells
+		return fmt.Sprintf("%s %s %02X", left, op, cond.Value)
 	}
-	cells = append(cells, GridCell{Text: formatHex16(cond.Value), Attr: ColorAddress.Attr()})
-	return cells
+	return fmt.Sprintf("%s %s %s", left, op, formatHex16(cond.Value))
 }
 
 func (v *BreakpointsViewer) queueDeleteSelected() {

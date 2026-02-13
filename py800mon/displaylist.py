@@ -3,7 +3,7 @@ from .actions import Actions
 from .appstate import state
 from .datastructures import DisplayList, DisplayListEntry
 from .rpc import RpcException
-from .ui import Color, GridCell, GridWidget
+from .ui import Color, GridWidget
 
 DMACTL_ADDR = 0x022F
 DMACTL_HW_ADDR = 0xD400
@@ -193,6 +193,8 @@ class DisplayListViewer(VisualRpcComponent):
     def __init__(self, rpc, window):
         super().__init__(rpc, window)
         self.grid = GridWidget(window)
+        self.grid.add_column("address", width=5, attr=Color.ADDRESS.attr())
+        self.grid.add_column("description", width=0, attr=Color.TEXT.attr())
         self._dmactl = 0
 
     async def update(self):
@@ -220,20 +222,14 @@ class DisplayListViewer(VisualRpcComponent):
                 desc = f"{count}x {entry.description}"
             else:
                 desc = entry.description
-            rows.append(
-                (
-                    GridCell(f"{entry.addr:04X}:", Color.ADDRESS.attr()),
-                    GridCell(desc, Color.TEXT.attr()),
-                )
-            )
-        self.grid.set_grid_column_widths((5, 0))
-        self.grid.set_grid_rows(rows)
-        if rows and self.grid.grid_selected is None:
-            self.grid.set_grid_selected(0)
-        self.grid.render_grid()
+            rows.append((f"{entry.addr:04X}:", desc))
+        self.grid.set_data(rows)
+        if rows and self.grid.selected_row is None:
+            self.grid.set_selected_row(0)
+        self.grid.render()
 
     def handle_input(self, ch):
         if self.app.screen.focused is not self.window:
             return False
 
-        return self.grid.handle_grid_navigation_input(ch)
+        return self.grid.handle_input(ch)

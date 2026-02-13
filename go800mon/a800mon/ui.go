@@ -87,29 +87,39 @@ type Window struct {
 	onBlur      func()
 }
 
-type GridCell struct {
-	Text string
-	Attr int
+type GridAttrCallback func(value string, row []string) int
+
+type GridColumn struct {
+	Name         string
+	Width        int
+	Attr         int
+	AttrCallback GridAttrCallback
 }
 
-type GridRow []GridCell
-
 type GridWidget struct {
-	window               *Window
-	gridRows             []GridRow
-	gridColWidths        []int
-	gridOffset           int
-	gridSelected         int
-	gridSelectedSet      bool
-	gridActiveRow        int
-	gridActiveRowSet     bool
-	gridColGap           int
-	gridShowScrollbar    bool
-	gridSelectionEnabled bool
-	gridVirtualSet       bool
-	gridVirtualTotal     int
-	gridVirtualOffset    int
-	gridVirtualPage      int
+	window            *Window
+	columns           []GridColumn
+	data              [][]string
+	rows              [][]string
+	offset            int
+	selectedRow       int
+	selectedRowSet    bool
+	highlightedRow    int
+	highlightedRowSet bool
+	colGap            int
+	showScrollbar     bool
+	selectionEnabled  bool
+	virtualSet        bool
+	virtualTotal      int
+	virtualOffset     int
+	virtualPage       int
+	editableSet       bool
+	editableStart     int
+	editableEnd       int
+	onCellInputChange func(x int, y int, value string)
+	editingActive     bool
+	editRow           int
+	editValue         string
 }
 
 type windowTag struct {
@@ -346,10 +356,10 @@ func NewWindow(title string, border bool) *Window {
 
 func NewGridWidget(window *Window) *GridWidget {
 	return &GridWidget{
-		window:               window,
-		gridColGap:           1,
-		gridShowScrollbar:    true,
-		gridSelectionEnabled: true,
+		window:           window,
+		colGap:           1,
+		showScrollbar:    true,
+		selectionEnabled: true,
 	}
 }
 
@@ -732,37 +742,142 @@ func (w *Window) Newline() {
 	}
 }
 
-func (g *GridWidget) SetGridRows(rows []GridRow) {
-	out := make([]GridRow, len(rows))
+func (g *GridWidget) ClearColumns() {
+	if len(g.columns) == 0 {
+		return
+	}
+	g.columns = nil
+	g.editableSet = false
+	g.editingActive = false
+	g.editRow = 0
+	g.editValue = ""
+	g.window.dirty = true
+}
+
+func (g *GridWidget) AddColumn(name string, width int, attr int, attrCallback GridAttrCallback) {
+	if width < 0 {
+		width = 0
+	}
+	g.columns = append(g.columns, GridColumn{
+		Name:         name,
+		Width:        width,
+		Attr:         attr,
+		AttrCallback: attrCallback,
+	})
+	g.rebuildRows()
+}
+
+func (g *GridWidget) SetData(rows [][]string) {
+	data := make([][]string, len(rows))
 	for i, row := range rows {
-		cp := make(GridRow, len(row))
+		cp := make([]string, len(row))
 		copy(cp, row)
-		out[i] = cp
+		data[i] = cp
 	}
-	g.gridRows = out
-	g.clampGridState()
+	g.data = data
+	g.editingActive = false
+	g.editRow = 0
+	g.editValue = ""
+	g.rebuildRows()
+}
+
+func (g *GridWidget) SetRow(y int, values []string) {
+	rowIdx := y
+	if rowIdx < 0 {
+		return
+	}
+	data := make([][]string, len(g.data))
+	for i, row := range g.data {
+		cp := make([]string, len(row))
+		copy(cp, row)
+		data[i] = cp
+	}
+	for len(data) <= rowIdx {
+		data = append(data, nil)
+	}
+	cp := make([]string, len(values))
+	copy(cp, values)
+	data[rowIdx] = cp
+	g.SetData(data)
+}
+
+func (g *GridWidget) SetCell(x int, y int, value string) {
+	rowIdx := y
+	colIdx := x
+	if rowIdx < 0 || colIdx < 0 {
+		return
+	}
+	data := make([][]string, len(g.data))
+	for i, row := range g.data {
+		cp := make([]string, len(row))
+		copy(cp, row)
+		data[i] = cp
+	}
+	for len(data) <= rowIdx {
+		data = append(data, nil)
+	}
+	row := data[rowIdx]
+	for len(row) <= colIdx {
+		row = append(row, "")
+	}
+	row[colIdx] = value
+	data[rowIdx] = row
+	g.SetData(data)
+}
+
+func (g *GridWidget) SetEditableColumnsRange(start, end int) {
+	if start > end {
+		start, end = end, start
+	}
+	g.editableSet = true
+	g.editableStart = start
+	g.editableEnd = end
+	g.editingActive = false
+	g.editRow = 0
+	g.editValue = ""
 	g.window.dirty = true
 }
 
-func (g *GridWidget) SetGridColumnWidths(widths []int) {
-	out := make([]int, len(widths))
-	for i, width := range widths {
-		if width < 0 {
-			width = 0
-		}
-		out[i] = width
+func (g *GridWidget) BeginEdit(row int, initialValue string) bool {
+	if !g.editableSet {
+		return false
 	}
-	g.gridColWidths = out
+	if row < 0 || row >= len(g.rows) {
+		return false
+	}
+	g.editRow = row
+	g.editValue = initialValue
+	g.editingActive = true
+	g.window.dirty = true
+	return true
+}
+
+func (g *GridWidget) EndEdit() {
+	if !g.editingActive {
+		return
+	}
+	g.editingActive = false
+	g.editRow = 0
+	g.editValue = ""
 	g.window.dirty = true
 }
 
-func (g *GridWidget) SetGridSelected(idx *int) {
-	if idx == nil || len(g.gridRows) == 0 {
-		if !g.gridSelectedSet {
+func (g *GridWidget) EditingValue() string {
+	return g.editValue
+}
+
+func (g *GridWidget) SetOnCellInputChange(callback func(x int, y int, value string)) {
+	g.onCellInputChange = callback
+}
+
+func (g *GridWidget) SetSelectedRow(idx *int) {
+	if idx == nil || len(g.rows) == 0 {
+		if !g.selectedRowSet {
 			return
 		}
-		g.gridSelectedSet = false
-		g.gridSelected = 0
+		g.selectedRowSet = false
+		g.selectedRow = 0
+		g.editingActive = false
 		g.window.dirty = true
 		return
 	}
@@ -770,25 +885,26 @@ func (g *GridWidget) SetGridSelected(idx *int) {
 	if value < 0 {
 		value = 0
 	}
-	if value >= len(g.gridRows) {
-		value = len(g.gridRows) - 1
+	if value >= len(g.rows) {
+		value = len(g.rows) - 1
 	}
-	if g.gridSelectedSet && g.gridSelected == value {
+	if g.selectedRowSet && g.selectedRow == value {
 		return
 	}
-	g.gridSelected = value
-	g.gridSelectedSet = true
-	g.ensureGridRowVisible(value)
+	g.selectedRow = value
+	g.selectedRowSet = true
+	g.editingActive = false
+	g.ensureRowVisible(value)
 	g.window.dirty = true
 }
 
-func (g *GridWidget) SetGridActiveRow(idx *int) {
-	if idx == nil || len(g.gridRows) == 0 {
-		if !g.gridActiveRowSet {
+func (g *GridWidget) SetHighlightedRow(idx *int) {
+	if idx == nil || len(g.rows) == 0 {
+		if !g.highlightedRowSet {
 			return
 		}
-		g.gridActiveRowSet = false
-		g.gridActiveRow = 0
+		g.highlightedRowSet = false
+		g.highlightedRow = 0
 		g.window.dirty = true
 		return
 	}
@@ -796,26 +912,26 @@ func (g *GridWidget) SetGridActiveRow(idx *int) {
 	if value < 0 {
 		value = 0
 	}
-	if value >= len(g.gridRows) {
-		value = len(g.gridRows) - 1
+	if value >= len(g.rows) {
+		value = len(g.rows) - 1
 	}
-	if g.gridActiveRowSet && g.gridActiveRow == value {
+	if g.highlightedRowSet && g.highlightedRow == value {
 		return
 	}
-	g.gridActiveRow = value
-	g.gridActiveRowSet = true
+	g.highlightedRow = value
+	g.highlightedRowSet = true
 	g.window.dirty = true
 }
 
-func (g *GridWidget) GridSelected() (int, bool) {
-	if !g.gridSelectedSet {
+func (g *GridWidget) SelectedRow() (int, bool) {
+	if !g.selectedRowSet {
 		return 0, false
 	}
-	return g.gridSelected, true
+	return g.selectedRow, true
 }
 
-func (g *GridWidget) SetGridOffset(offset int) {
-	maxOffset := g.gridMaxOffset()
+func (g *GridWidget) SetOffset(offset int) {
+	maxOffset := g.maxOffset()
 	value := offset
 	if value < 0 {
 		value = 0
@@ -823,47 +939,30 @@ func (g *GridWidget) SetGridOffset(offset int) {
 	if value > maxOffset {
 		value = maxOffset
 	}
-	if value == g.gridOffset {
+	if value == g.offset {
 		return
 	}
-	g.gridOffset = value
+	g.offset = value
 	g.window.dirty = true
 }
 
-func (g *GridWidget) ScrollGrid(delta int) {
-	g.SetGridOffset(g.gridOffset + delta)
-}
-
-func (g *GridWidget) ScrollGridPage(direction int) {
-	page := max(1, g.window.ih)
-	g.ScrollGrid(direction * page)
-}
-
-func (g *GridWidget) GridHome() {
-	g.SetGridOffset(0)
-}
-
-func (g *GridWidget) GridEnd() {
-	g.SetGridOffset(g.gridMaxOffset())
-}
-
-func (g *GridWidget) SetGridShowScrollbar(enabled bool) {
-	if g.gridShowScrollbar == enabled {
+func (g *GridWidget) SetShowScrollbar(enabled bool) {
+	if g.showScrollbar == enabled {
 		return
 	}
-	g.gridShowScrollbar = enabled
+	g.showScrollbar = enabled
 	g.window.dirty = true
 }
 
-func (g *GridWidget) SetGridSelectionEnabled(enabled bool) {
-	if g.gridSelectionEnabled == enabled {
+func (g *GridWidget) SetSelectionEnabled(enabled bool) {
+	if g.selectionEnabled == enabled {
 		return
 	}
-	g.gridSelectionEnabled = enabled
+	g.selectionEnabled = enabled
 	g.window.dirty = true
 }
 
-func (g *GridWidget) SetGridVirtualScroll(total, offset, page int) {
+func (g *GridWidget) SetVirtualScroll(total, offset, page int) {
 	totalValue := total
 	if totalValue < 1 {
 		totalValue = 1
@@ -883,55 +982,55 @@ func (g *GridWidget) SetGridVirtualScroll(total, offset, page int) {
 	if offsetValue > maxOffset {
 		offsetValue = maxOffset
 	}
-	if g.gridVirtualSet &&
-		g.gridVirtualTotal == totalValue &&
-		g.gridVirtualOffset == offsetValue &&
-		g.gridVirtualPage == pageValue {
+	if g.virtualSet &&
+		g.virtualTotal == totalValue &&
+		g.virtualOffset == offsetValue &&
+		g.virtualPage == pageValue {
 		return
 	}
-	g.gridVirtualSet = true
-	g.gridVirtualTotal = totalValue
-	g.gridVirtualOffset = offsetValue
-	g.gridVirtualPage = pageValue
+	g.virtualSet = true
+	g.virtualTotal = totalValue
+	g.virtualOffset = offsetValue
+	g.virtualPage = pageValue
 	g.window.dirty = true
 }
 
-func (g *GridWidget) ClearGridVirtualScroll() {
-	if !g.gridVirtualSet {
+func (g *GridWidget) ClearVirtualScroll() {
+	if !g.virtualSet {
 		return
 	}
-	g.gridVirtualSet = false
-	g.gridVirtualTotal = 0
-	g.gridVirtualOffset = 0
-	g.gridVirtualPage = 0
+	g.virtualSet = false
+	g.virtualTotal = 0
+	g.virtualOffset = 0
+	g.virtualPage = 0
 	g.window.dirty = true
 }
 
-func (g *GridWidget) SetGridColumnGap(gap int) {
+func (g *GridWidget) SetColumnGap(gap int) {
 	if gap < 0 {
 		gap = 0
 	}
-	if g.gridColGap == gap {
+	if g.colGap == gap {
 		return
 	}
-	g.gridColGap = gap
+	g.colGap = gap
 	g.window.dirty = true
 }
 
-func (g *GridWidget) GridMoveSelected(delta int) {
-	count := len(g.gridRows)
+func (g *GridWidget) moveSelected(delta int) {
+	count := len(g.rows)
 	if count <= 0 {
-		g.SetGridSelected(nil)
+		g.SetSelectedRow(nil)
 		return
 	}
-	cur, ok := g.GridSelected()
+	cur, ok := g.SelectedRow()
 	if !ok {
 		if delta < 0 {
 			idx := count - 1
-			g.SetGridSelected(&idx)
+			g.SetSelectedRow(&idx)
 		} else {
 			idx := 0
-			g.SetGridSelected(&idx)
+			g.SetSelectedRow(&idx)
 		}
 		return
 	}
@@ -942,94 +1041,101 @@ func (g *GridWidget) GridMoveSelected(delta int) {
 	if next >= count {
 		next = count - 1
 	}
-	g.SetGridSelected(&next)
+	g.SetSelectedRow(&next)
 }
 
-func (g *GridWidget) GridMoveSelectedPage(direction int) {
+func (g *GridWidget) moveSelectedPage(direction int) {
 	page := max(1, g.window.ih)
-	g.GridMoveSelected(direction * page)
+	g.moveSelected(direction * page)
 }
 
-func (g *GridWidget) GridSelectHome() {
-	if len(g.gridRows) <= 0 {
-		g.SetGridSelected(nil)
+func (g *GridWidget) selectHome() {
+	if len(g.rows) <= 0 {
+		g.SetSelectedRow(nil)
 		return
 	}
 	idx := 0
-	g.SetGridSelected(&idx)
+	g.SetSelectedRow(&idx)
 }
 
-func (g *GridWidget) GridSelectEnd() {
-	if len(g.gridRows) <= 0 {
-		g.SetGridSelected(nil)
+func (g *GridWidget) selectEnd() {
+	if len(g.rows) <= 0 {
+		g.SetSelectedRow(nil)
 		return
 	}
-	idx := len(g.gridRows) - 1
-	g.SetGridSelected(&idx)
+	idx := len(g.rows) - 1
+	g.SetSelectedRow(&idx)
 }
 
-func (g *GridWidget) HandleGridNavigationInput(ch int) bool {
+func (g *GridWidget) HandleNavigationInput(ch int) bool {
 	if ch == KeyUp() {
-		if g.gridSelectionEnabled {
-			g.GridMoveSelected(-1)
+		if g.selectionEnabled {
+			g.moveSelected(-1)
 		} else {
-			g.ScrollGrid(-1)
+			g.SetOffset(g.offset - 1)
 		}
 		return true
 	}
 	if ch == KeyDown() {
-		if g.gridSelectionEnabled {
-			g.GridMoveSelected(1)
+		if g.selectionEnabled {
+			g.moveSelected(1)
 		} else {
-			g.ScrollGrid(1)
+			g.SetOffset(g.offset + 1)
 		}
 		return true
 	}
 	if ch == KeyPageUp() || ch == 339 {
-		if g.gridSelectionEnabled {
-			g.GridMoveSelectedPage(-1)
+		if g.selectionEnabled {
+			g.moveSelectedPage(-1)
 		} else {
-			g.ScrollGridPage(-1)
+			g.SetOffset(g.offset - max(1, g.window.ih))
 		}
 		return true
 	}
 	if ch == KeyPageDown() || ch == 338 {
-		if g.gridSelectionEnabled {
-			g.GridMoveSelectedPage(1)
+		if g.selectionEnabled {
+			g.moveSelectedPage(1)
 		} else {
-			g.ScrollGridPage(1)
+			g.SetOffset(g.offset + max(1, g.window.ih))
 		}
 		return true
 	}
 	if ch == KeyHome() || ch == 262 {
-		if g.gridSelectionEnabled {
-			g.GridSelectHome()
+		if g.selectionEnabled {
+			g.selectHome()
 		} else {
-			g.GridHome()
+			g.SetOffset(0)
 		}
 		return true
 	}
 	if ch == KeyEnd() || ch == 360 {
-		if g.gridSelectionEnabled {
-			g.GridSelectEnd()
+		if g.selectionEnabled {
+			g.selectEnd()
 		} else {
-			g.GridEnd()
+			g.SetOffset(g.maxOffset())
 		}
 		return true
 	}
 	return false
 }
 
-func (g *GridWidget) RenderGrid() {
+func (g *GridWidget) HandleInput(ch int) bool {
+	if g.handleEditInput(ch) {
+		return true
+	}
+	return g.HandleNavigationInput(ch)
+}
+
+func (g *GridWidget) Render() {
 	w := g.window
 	ih := w.ih
 	if ih <= 0 {
 		return
 	}
-	g.clampGridState()
+	g.clampState()
 	hasFocus := w.screen == nil || w.screen.focused == w
 	total, scrollOffset, scrollPage := g.scrollbarMetrics()
-	showScrollbar := g.gridShowScrollbar && w.iw > 0 && total > scrollPage
+	showScrollbar := g.showScrollbar && w.iw > 0 && total > scrollPage
 	contentW := w.iw
 	if showScrollbar {
 		contentW--
@@ -1037,26 +1143,25 @@ func (g *GridWidget) RenderGrid() {
 	if contentW < 0 {
 		contentW = 0
 	}
-	start := g.gridOffset
-	end := min(len(g.gridRows), start+ih)
+	start := g.offset
+	end := min(len(g.rows), start+ih)
 	drawn := 0
 	for rowIdx := start; rowIdx < end; rowIdx++ {
-		row := g.gridRows[rowIdx]
+		row := g.rows[rowIdx]
 		rowAttr := 0
-		if g.gridActiveRowSet && g.gridActiveRow == rowIdx {
+		if g.highlightedRowSet && g.highlightedRow == rowIdx {
 			rowAttr |= AttrReverse()
 		}
-		if g.gridSelectionEnabled && hasFocus && g.gridSelectedSet && g.gridSelected == rowIdx {
+		if g.selectionEnabled && hasFocus && g.selectedRowSet && g.selectedRow == rowIdx {
 			rowAttr |= AttrReverse()
 		}
 		x := 0
-		for colIdx, cell := range row {
-			text := cell.Text
-			if colIdx < len(g.gridColWidths) {
-				width := g.gridColWidths[colIdx]
-				if width > 0 {
-					text = padRight(cutTo(text, width), width)
-				}
+		colCount := max(len(g.columns), len(row))
+		for colIdx := 0; colIdx < colCount; colIdx++ {
+			text := g.cellText(colIdx, rowIdx)
+			width := g.columnWidth(colIdx)
+			if width > 0 {
+				text = padRight(cutTo(text, width), width)
 			}
 			if x >= contentW {
 				break
@@ -1068,12 +1173,12 @@ func (g *GridWidget) RenderGrid() {
 				}
 				if text != "" {
 					w.Cursor(x, drawn)
-					w.Print(text, cell.Attr|rowAttr, false)
+					w.Print(text, g.cellAttr(colIdx, rowIdx)|rowAttr, false)
 					x += runeLen(text)
 				}
 			}
-			if colIdx < len(row)-1 && g.gridColGap > 0 && x < contentW {
-				gap := min(g.gridColGap, contentW-x)
+			if colIdx < colCount-1 && g.colGap > 0 && x < contentW {
+				gap := min(g.colGap, contentW-x)
 				if gap > 0 {
 					w.Cursor(x, drawn)
 					w.Print(strings.Repeat(" ", gap), rowAttr, false)
@@ -1096,6 +1201,190 @@ func (g *GridWidget) RenderGrid() {
 	if showScrollbar {
 		g.drawGridScrollbar(total, scrollOffset, scrollPage)
 	}
+	g.renderEditOverlay(start, contentW)
+}
+
+func (g *GridWidget) rebuildRows() {
+	rows := make([][]string, len(g.data))
+	for i, row := range g.data {
+		cp := make([]string, len(row))
+		copy(cp, row)
+		rows[i] = cp
+	}
+	g.rows = rows
+	g.clampState()
+	g.window.dirty = true
+}
+
+func (g *GridWidget) columnWidth(colIdx int) int {
+	if colIdx < 0 || colIdx >= len(g.columns) {
+		return 0
+	}
+	width := g.columns[colIdx].Width
+	if width < 0 {
+		return 0
+	}
+	return width
+}
+
+func (g *GridWidget) columnAttr(colIdx int) int {
+	if colIdx < 0 || colIdx >= len(g.columns) {
+		return 0
+	}
+	return g.columns[colIdx].Attr
+}
+
+func (g *GridWidget) cellText(colIdx int, rowIdx int) string {
+	if rowIdx < 0 || rowIdx >= len(g.rows) {
+		return ""
+	}
+	row := g.rows[rowIdx]
+	if colIdx < 0 || colIdx >= len(row) {
+		return ""
+	}
+	return row[colIdx]
+}
+
+func (g *GridWidget) cellAttr(colIdx int, rowIdx int) int {
+	base := g.columnAttr(colIdx)
+	if rowIdx < 0 || rowIdx >= len(g.data) {
+		return base
+	}
+	if colIdx < 0 || colIdx >= len(g.columns) {
+		return base
+	}
+	cb := g.columns[colIdx].AttrCallback
+	if cb == nil {
+		return base
+	}
+	row := g.data[rowIdx]
+	value := ""
+	if colIdx < len(row) {
+		value = row[colIdx]
+	}
+	return cb(value, row)
+}
+
+func (g *GridWidget) editableInputWidth(rowIdx int) int {
+	if !g.editableSet {
+		return 0
+	}
+	total := 0
+	for colIdx := g.editableStart; colIdx <= g.editableEnd; colIdx++ {
+		width := g.columnWidth(colIdx)
+		if width <= 0 {
+			width = runeLen(g.cellText(colIdx, rowIdx))
+		}
+		if width < 1 {
+			width = 1
+		}
+		total += width
+		if colIdx < g.editableEnd {
+			total += g.colGap
+		}
+	}
+	if total < 0 {
+		return 0
+	}
+	return total
+}
+
+func (g *GridWidget) editableStartX(rowIdx int) int {
+	if !g.editableSet {
+		return 0
+	}
+	x := 0
+	for colIdx := 0; colIdx < g.editableStart; colIdx++ {
+		width := g.columnWidth(colIdx)
+		if width <= 0 {
+			width = runeLen(g.cellText(colIdx, rowIdx))
+		}
+		x += width
+		if g.colGap > 0 {
+			x += g.colGap
+		}
+	}
+	if x < 0 {
+		return 0
+	}
+	return x
+}
+
+func (g *GridWidget) emitCellInputChange(x int, y int, value string) {
+	if g.onCellInputChange == nil {
+		return
+	}
+	g.onCellInputChange(x, y, value)
+}
+
+func (g *GridWidget) handleEditInput(ch int) bool {
+	if !g.editableSet || !g.editingActive {
+		return false
+	}
+	y := g.editRow
+	if y < 0 || y >= len(g.data) {
+		g.editingActive = false
+		return false
+	}
+	if ch == 10 || ch == 13 || ch == KeyEnter() {
+		g.EndEdit()
+		return true
+	}
+	if ch == 27 {
+		g.EndEdit()
+		return true
+	}
+	if ch == KeyBackspace() || ch == 127 || ch == 8 {
+		if g.editValue == "" {
+			return true
+		}
+		g.editValue = trimLastRune(g.editValue)
+		g.emitCellInputChange(g.editableStart, y, g.editValue)
+		g.window.dirty = true
+		return true
+	}
+	if ch < 32 || ch > 126 {
+		return true
+	}
+	width := g.editableInputWidth(y)
+	if width <= 0 {
+		return true
+	}
+	if runeLen(g.editValue) >= width {
+		return true
+	}
+	g.editValue += string(rune(ch))
+	g.emitCellInputChange(g.editableStart, y, g.editValue)
+	g.window.dirty = true
+	return true
+}
+
+func (g *GridWidget) renderEditOverlay(startRow int, contentW int) {
+	if !g.editingActive || !g.editableSet {
+		return
+	}
+	rowIdx := g.editRow
+	if rowIdx < startRow || rowIdx >= startRow+g.window.ih {
+		return
+	}
+	y := rowIdx - startRow
+	x := g.editableStartX(rowIdx)
+	width := g.editableInputWidth(rowIdx)
+	if width <= 0 || x >= contentW {
+		return
+	}
+	if x+width > contentW {
+		width = contentW - x
+	}
+	if width <= 0 {
+		return
+	}
+	text := padRight(cutTo(g.editValue, width), width)
+	attr := ColorText.Attr() | AttrReverse()
+	g.window.Cursor(x, y)
+	g.window.Print(text, attr, false)
+	cursorX := min(runeLen(g.editValue), max(0, width-1))
+	g.window.Cursor(x+cursorX, y)
 }
 
 func (g *GridWidget) drawGridScrollbar(total, offset, page int) {
@@ -1134,19 +1423,19 @@ func (g *GridWidget) drawGridScrollbar(total, offset, page int) {
 func (g *GridWidget) scrollbarMetrics() (int, int, int) {
 	ih := g.window.ih
 	page := max(1, ih)
-	if g.gridVirtualSet {
-		total := g.gridVirtualTotal
+	if g.virtualSet {
+		total := g.virtualTotal
 		if total < 1 {
 			total = 1
 		}
-		virtualPage := g.gridVirtualPage
+		virtualPage := g.virtualPage
 		if virtualPage < 1 {
 			virtualPage = 1
 		}
 		if virtualPage > total {
 			virtualPage = total
 		}
-		offset := g.gridVirtualOffset
+		offset := g.virtualOffset
 		if offset < 0 {
 			offset = 0
 		}
@@ -1156,8 +1445,8 @@ func (g *GridWidget) scrollbarMetrics() (int, int, int) {
 		}
 		return total, offset, virtualPage
 	}
-	total := len(g.gridRows)
-	offset := g.gridOffset
+	total := len(g.rows)
+	offset := g.offset
 	if offset < 0 {
 		offset = 0
 	}
@@ -1168,68 +1457,68 @@ func (g *GridWidget) scrollbarMetrics() (int, int, int) {
 	return total, offset, page
 }
 
-func (g *GridWidget) gridMaxOffset() int {
-	return max(0, len(g.gridRows)-g.window.ih)
+func (g *GridWidget) maxOffset() int {
+	return max(0, len(g.rows)-g.window.ih)
 }
 
-func (g *GridWidget) clampGridState() {
-	if g.gridSelectedSet {
-		if len(g.gridRows) == 0 {
-			g.gridSelectedSet = false
-			g.gridSelected = 0
+func (g *GridWidget) clampState() {
+	if g.selectedRowSet {
+		if len(g.rows) == 0 {
+			g.selectedRowSet = false
+			g.selectedRow = 0
 		} else {
-			if g.gridSelected < 0 {
-				g.gridSelected = 0
+			if g.selectedRow < 0 {
+				g.selectedRow = 0
 			}
-			if g.gridSelected >= len(g.gridRows) {
-				g.gridSelected = len(g.gridRows) - 1
+			if g.selectedRow >= len(g.rows) {
+				g.selectedRow = len(g.rows) - 1
 			}
 		}
 	}
-	if g.gridActiveRowSet {
-		if len(g.gridRows) == 0 {
-			g.gridActiveRowSet = false
-			g.gridActiveRow = 0
+	if g.highlightedRowSet {
+		if len(g.rows) == 0 {
+			g.highlightedRowSet = false
+			g.highlightedRow = 0
 		} else {
-			if g.gridActiveRow < 0 {
-				g.gridActiveRow = 0
+			if g.highlightedRow < 0 {
+				g.highlightedRow = 0
 			}
-			if g.gridActiveRow >= len(g.gridRows) {
-				g.gridActiveRow = len(g.gridRows) - 1
+			if g.highlightedRow >= len(g.rows) {
+				g.highlightedRow = len(g.rows) - 1
 			}
 		}
 	}
-	maxOffset := g.gridMaxOffset()
-	if g.gridOffset < 0 {
-		g.gridOffset = 0
+	maxOffset := g.maxOffset()
+	if g.offset < 0 {
+		g.offset = 0
 	}
-	if g.gridOffset > maxOffset {
-		g.gridOffset = maxOffset
+	if g.offset > maxOffset {
+		g.offset = maxOffset
 	}
-	if g.gridSelectedSet {
-		g.ensureGridRowVisible(g.gridSelected)
+	if g.selectedRowSet {
+		g.ensureRowVisible(g.selectedRow)
 	}
 }
 
-func (g *GridWidget) ensureGridRowVisible(idx int) {
-	if g.window.ih <= 0 || len(g.gridRows) <= 0 {
+func (g *GridWidget) ensureRowVisible(idx int) {
+	if g.window.ih <= 0 || len(g.rows) <= 0 {
 		return
 	}
 	row := idx
 	if row < 0 {
 		row = 0
 	}
-	if row >= len(g.gridRows) {
-		row = len(g.gridRows) - 1
+	if row >= len(g.rows) {
+		row = len(g.rows) - 1
 	}
-	if row < g.gridOffset {
-		g.gridOffset = row
+	if row < g.offset {
+		g.offset = row
 		g.window.dirty = true
 		return
 	}
-	maxVisible := g.gridOffset + g.window.ih - 1
+	maxVisible := g.offset + g.window.ih - 1
 	if row > maxVisible {
-		g.gridOffset = row - g.window.ih + 1
+		g.offset = row - g.window.ih + 1
 		g.window.dirty = true
 	}
 }

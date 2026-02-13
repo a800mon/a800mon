@@ -8,7 +8,7 @@ from .atascii import atascii_to_curses, screen_to_atascii
 from .datastructures import ScreenBuffer
 from .displaylist import DMACTL_ADDR, DMACTL_HW_ADDR, DisplayListMemoryMapper
 from .rpc import RpcException
-from .ui import Color, GridCell, GridWidget
+from .ui import Color, GridWidget
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -42,7 +42,9 @@ class ScreenBufferInspector(VisualRpcComponent):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.grid = GridWidget(self.window, col_gap=0)
-        self.grid.set_grid_selection_enabled(False)
+        self.grid.add_column("address", width=0, attr=Color.ADDRESS.attr())
+        self.grid.add_column("content", width=0, attr=Color.TEXT.attr())
+        self.grid.set_selection_enabled(False)
         self._inspect = False
         self._cx = 0
         self._cy = 0
@@ -104,7 +106,7 @@ class ScreenBufferInspector(VisualRpcComponent):
         if ch in (ord(" "), ord("a"), ord("A")):
             self.app.dispatch_action(Actions.SET_ATASCII, not state.use_atascii)
             return True
-        return self.grid.handle_grid_navigation_input(ch)
+        return self.grid.handle_input(ch)
 
     @property
     def cursor(self) -> tuple[int, int]:
@@ -152,20 +154,19 @@ class ScreenBufferInspector(VisualRpcComponent):
             if draw_width > len(row):
                 left_pad = (draw_width - len(row)) // 2
                 right_pad = draw_width - len(row) - left_pad
-            cells = [GridCell(f"{start_addr:04X}: ", Color.ADDRESS.attr())]
+            content = ""
             if left_pad > 0:
-                cells.append(GridCell("·" * left_pad, Color.UNUSED.attr()))
-            for text, attr in _render_runs(row, state.use_atascii):
+                content += "·" * left_pad
+            for text, _attr in _render_runs(row, state.use_atascii):
                 if text:
-                    cells.append(GridCell(text, attr))
+                    content += text
             if right_pad > 0:
-                cells.append(GridCell("·" * right_pad, Color.UNUSED.attr()))
-            rows.append(tuple(cells))
+                content += "·" * right_pad
+            rows.append((f"{start_addr:04X}: ", content))
 
-        self.grid.set_grid_column_widths(())
-        self.grid.set_grid_rows(rows)
-        self.grid.set_grid_selected(None)
-        self.grid.render_grid()
+        self.grid.set_data(rows)
+        self.grid.set_selected_row(None)
+        self.grid.render()
 
     async def update(self):
         try:
