@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"go800mon/internal/disasm"
+	"go800mon/internal/memory"
 )
 
 type DisassemblyViewer struct {
@@ -477,12 +478,12 @@ func (d *DisassemblyViewer) updateAddressInput(text string) {
 	if text == "" {
 		return
 	}
-	v, err := strconv.ParseUint(text, 16, 16)
+	v, err := memory.ParseHex(text)
 	if err != nil {
 		return
 	}
 	d.follow = false
-	d.currentAddr = uint16(v)
+	d.currentAddr = v
 	d.hasCurrentAddr = true
 	d.pendingNav = navNone
 	d.pendingSteps = 0

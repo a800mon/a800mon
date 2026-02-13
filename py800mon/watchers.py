@@ -4,7 +4,7 @@ from .app import VisualRpcComponent
 from .appstate import state
 from .datastructures import WatcherEntry
 from .inputwidget import InputWidget
-from .memorymap import find_symbol_addr, lookup_symbol
+from .memorymap import find_symbol_or_addr, lookup_symbol
 from .rpc import RpcException
 from .actions import Actions
 from .ui import Color
@@ -15,7 +15,6 @@ class WatchersViewer(VisualRpcComponent):
         super().__init__(*args, **kwargs)
         self._screen = None
         self._dispatcher = None
-        self._replace_on_next_input = False
         self._input_snapshot = ""
         self._input_mode = None
         self._pending_addr = None
@@ -168,32 +167,21 @@ class WatchersViewer(VisualRpcComponent):
 
         if input_active:
             self.window.cursor = (0, 0)
-            if self._input_mode == "search":
-                text = state.input_buffer[:8]
-                self.window.print(
-                    text.ljust(8), attr=Color.TEXT.attr() | curses.A_REVERSE
-                )
-                self.window.clear_to_eol()
-            else:
-                attr = Color.ADDRESS.attr() | curses.A_REVERSE
-                text = state.input_buffer[-4:].upper().rjust(4, "0")
-                self.window.print(text, attr=attr)
-                self.window.print("  ", attr=attr)
-                self.window.clear_to_eol(inverse=True)
+            text = state.input_buffer[:8]
+            self.window.print(
+                text.ljust(8), attr=Color.TEXT.attr() | curses.A_REVERSE
+            )
+            self.window.clear_to_eol()
 
     def handle_input(self, ch):
         if state.input_focus:
             if state.input_target != "watchers":
                 return False
-            return self._handle_address_input(ch)
+            return self._handle_search_input(ch)
         if self._screen is None or self._dispatcher is None:
             return False
         if self._screen.focused is not self.window:
             return False
-
-        if ch in (ord("="), ord("+")):
-            self._open_hex_input("0000")
-            return True
 
         if ch == ord("/"):
             self._open_search_input("")
@@ -222,7 +210,6 @@ class WatchersViewer(VisualRpcComponent):
         return False
 
     def _close_input(self):
-        self._replace_on_next_input = False
         self._input_mode = None
         self._search_input.deactivate()
         self._dispatcher.dispatch(Actions.SET_INPUT_FOCUS, False)
@@ -232,24 +219,9 @@ class WatchersViewer(VisualRpcComponent):
         except curses.error:
             pass
 
-    def _open_hex_input(self, initial: str):
-        self._input_mode = "hex"
-        self._input_snapshot = str(initial)
-        self._replace_on_next_input = True
-        self._pending_addr = None
-        self._pending_row = None
-        self._dispatcher.dispatch(Actions.SET_INPUT_BUFFER, self._input_snapshot)
-        self._dispatcher.dispatch(Actions.SET_INPUT_TARGET, "watchers")
-        self._dispatcher.dispatch(Actions.SET_INPUT_FOCUS, True)
-        try:
-            curses.curs_set(1)
-        except curses.error:
-            pass
-
     def _open_search_input(self, initial: str):
         self._input_mode = "search"
         self._input_snapshot = str(initial)
-        self._replace_on_next_input = False
         self._pending_addr = None
         self._pending_row = None
         self._search_input.activate(self._input_snapshot)
@@ -260,14 +232,6 @@ class WatchersViewer(VisualRpcComponent):
             curses.curs_set(1)
         except curses.error:
             pass
-
-    def _update_input(self, text: str):
-        self._dispatcher.dispatch(Actions.SET_INPUT_BUFFER, text)
-        if text:
-            self._pending_addr = int(text, 16) & 0xFFFF
-        else:
-            self._pending_addr = None
-            self._pending_row = None
 
     def _update_search_buffer(self, text: str):
         self._search_input.set_buffer(text)
@@ -291,16 +255,11 @@ class WatchersViewer(VisualRpcComponent):
             return True
 
         if ch in (curses.KEY_BACKSPACE, 127, 8):
-            self._replace_on_next_input = False
             if self._search_input.backspace():
                 self._dispatcher.dispatch(
                     Actions.SET_INPUT_BUFFER, self._search_input.buffer
                 )
             return True
-
-        if self._replace_on_next_input:
-            self._update_search_buffer("")
-            self._replace_on_next_input = False
 
         if self._search_input.append_char(ch):
             self._dispatcher.dispatch(
@@ -310,7 +269,7 @@ class WatchersViewer(VisualRpcComponent):
         return True
 
     def _on_search_change(self, query):
-        addr = find_symbol_addr(query)
+        addr = find_symbol_or_addr(query)
         if addr is None:
             self._pending_addr = None
             self._pending_row = None
@@ -366,44 +325,3 @@ class WatchersViewer(VisualRpcComponent):
             self._selected = 0
         elif self._selected >= row_count:
             self._selected = row_count - 1
-
-    def _handle_address_input(self, ch):
-        if self._input_mode == "search":
-            return self._handle_search_input(ch)
-        if ch == 27:
-            self._dispatcher.dispatch(Actions.SET_INPUT_BUFFER, self._input_snapshot)
-            self._pending_addr = None
-            self._pending_row = None
-            self._close_input()
-            return True
-
-        if ch in (10, 13, curses.KEY_ENTER):
-            text = state.input_buffer[-4:].upper()
-            if text:
-                self._pending_addr = int(text, 16) & 0xFFFF
-                self._commit_pending()
-            else:
-                self._pending_addr = None
-                self._pending_row = None
-            self._close_input()
-            return True
-
-        if ch in (curses.KEY_BACKSPACE, 127, 8):
-            self._replace_on_next_input = False
-            text = state.input_buffer[:-1]
-            self._update_input(text)
-            return True
-
-        if ch < 0 or ch > 255:
-            return True
-        char = chr(ch).upper()
-        if not (("0" <= char <= "9") or ("A" <= char <= "F")):
-            return True
-        text = state.input_buffer
-        if self._replace_on_next_input:
-            text = ""
-            self._replace_on_next_input = False
-        if len(text) >= 4:
-            return True
-        self._update_input(text + char)
-        return True

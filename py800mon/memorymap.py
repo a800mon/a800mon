@@ -1,4 +1,5 @@
 import re
+from .memory import parse_hex_u16
 
 # Generated from monitor.c builtin symbol tables.
 _SYMBOLS = {
@@ -858,6 +859,21 @@ def find_symbol_addr(query: str) -> int | None:
         if q in name.lower():
             return addr
     return None
+
+
+def find_symbol_or_addr(query: str) -> int | None:
+    addr = find_symbol_addr(query)
+    if addr is not None:
+        return addr
+    q = str(query).strip()
+    if q.startswith(";"):
+        q = q[1:].lstrip()
+    if not q:
+        return None
+    try:
+        return parse_hex_u16(q)
+    except ValueError:
+        return None
 
 def comment_for_asm(asm_text: str) -> str:
     parts = asm_text.split(None, 1)

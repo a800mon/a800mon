@@ -3,6 +3,7 @@ import curses
 from .app import VisualRpcComponent
 from .appstate import state
 from .disasm import DecodedInstruction, disasm_6502_decoded
+from .memory import parse_hex_u16
 from .rpc import RpcException
 from .ui import Color
 
@@ -480,7 +481,7 @@ class DisassemblyViewer(VisualRpcComponent):
         if self._set_input_buffer is not None:
             self._set_input_buffer(text)
         if text:
-            self._manual_set_addr(int(text, 16))
+            self._manual_set_addr(parse_hex_u16(text))
 
     def _handle_address_input(self, ch):
         if ch == 27:
@@ -490,7 +491,7 @@ class DisassemblyViewer(VisualRpcComponent):
         if ch in (10, 13, curses.KEY_ENTER):
             text = state.input_buffer[-4:].upper()
             if text:
-                self._manual_set_addr(int(text, 16))
+                self._manual_set_addr(parse_hex_u16(text))
             self._close_address_input()
             return True
         if ch in (curses.KEY_BACKSPACE, 127, 8):

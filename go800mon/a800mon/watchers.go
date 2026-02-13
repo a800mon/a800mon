@@ -9,14 +9,13 @@ import (
 
 type WatchersViewer struct {
 	BaseVisualComponent
-	rpc                *RpcClient
-	screen             *Screen
-	dispatcher         *ActionDispatcher
-	inputSnapshot      string
-	inputMode          string
-	replaceOnNextInput bool
-	lastSnapshot       string
-	searchInput        *InputWidget
+	rpc           *RpcClient
+	screen        *Screen
+	dispatcher    *ActionDispatcher
+	inputSnapshot string
+	inputMode     string
+	lastSnapshot  string
+	searchInput   *InputWidget
 }
 
 func NewWatchersViewer(rpc *RpcClient, window *Window) *WatchersViewer {
@@ -158,22 +157,12 @@ func (v *WatchersViewer) Render(_force bool) {
 
 	if inputActive {
 		w.Cursor(0, 0)
-		if v.inputMode == "search" {
-			text := st.InputBuffer
-			if len([]rune(text)) > 8 {
-				text = string([]rune(text)[:8])
-			}
-			w.Print(padRight(text, 8), ColorText.Attr()|AttrReverse(), false)
-			w.ClearToEOL(false)
-		} else {
-			text := strings.ToUpper(st.InputBuffer)
-			if len(text) > 4 {
-				text = text[len(text)-4:]
-			}
-			text = padLeft(text, 4, '0')
-			w.Print(text+"  ", ColorAddress.Attr()|AttrReverse(), false)
-			w.ClearToEOL(true)
+		text := st.InputBuffer
+		if len([]rune(text)) > 8 {
+			text = string([]rune(text)[:8])
 		}
+		w.Print(padRight(text, 8), ColorText.Attr()|AttrReverse(), false)
+		w.ClearToEOL(false)
 	}
 }
 
@@ -183,10 +172,7 @@ func (v *WatchersViewer) HandleInput(ch int) bool {
 		if st.InputTarget != "watchers" {
 			return false
 		}
-		if v.inputMode == "search" {
-			return v.handleSearchInput(ch)
-		}
-		return v.handleAddressInput(ch)
+		return v.handleSearchInput(ch)
 	}
 	if v.screen == nil || v.dispatcher == nil {
 		return false
@@ -195,21 +181,9 @@ func (v *WatchersViewer) HandleInput(ch int) bool {
 		return false
 	}
 
-	if ch == int('=') || ch == int('+') {
-		v.inputMode = "hex"
-		v.inputSnapshot = "0000"
-		v.replaceOnNextInput = true
-		v.searchInput.Deactivate()
-		_ = v.dispatcher.Dispatch(ActionSetInputBuffer, v.inputSnapshot)
-		_ = v.dispatcher.Dispatch(ActionSetInputTarget, "watchers")
-		_ = v.dispatcher.Dispatch(ActionSetInputFocus, true)
-		_ = v.dispatcher.Dispatch(ActionSetWatcherPendingAddr, nil)
-		return true
-	}
 	if ch == int('/') {
 		v.inputMode = "search"
 		v.inputSnapshot = ""
-		v.replaceOnNextInput = false
 		v.searchInput.Activate(v.inputSnapshot)
 		_ = v.dispatcher.Dispatch(ActionSetInputBuffer, v.searchInput.Buffer())
 		_ = v.dispatcher.Dispatch(ActionSetInputTarget, "watchers")
@@ -251,74 +225,10 @@ func (v *WatchersViewer) HandleInput(ch int) bool {
 }
 
 func (v *WatchersViewer) closeInput() {
-	v.replaceOnNextInput = false
 	v.inputMode = ""
 	v.searchInput.Deactivate()
 	_ = v.dispatcher.Dispatch(ActionSetInputFocus, false)
 	_ = v.dispatcher.Dispatch(ActionSetInputTarget, "")
-}
-
-func (v *WatchersViewer) updateInput(text string) {
-	_ = v.dispatcher.Dispatch(ActionSetInputBuffer, text)
-	if text == "" {
-		_ = v.dispatcher.Dispatch(ActionSetWatcherPendingAddr, nil)
-		return
-	}
-	value, err := strconv.ParseUint(text, 16, 16)
-	if err != nil {
-		return
-	}
-	_ = v.dispatcher.Dispatch(ActionSetWatcherPendingAddr, uint16(value))
-}
-
-func (v *WatchersViewer) handleAddressInput(ch int) bool {
-	st := State()
-	if ch == 27 {
-		_ = v.dispatcher.Dispatch(ActionSetInputBuffer, strings.ToUpper(v.inputSnapshot))
-		_ = v.dispatcher.Dispatch(ActionSetWatcherPendingAddr, nil)
-		v.closeInput()
-		return true
-	}
-	if ch == 10 || ch == 13 || ch == KeyEnter() {
-		text := strings.ToUpper(st.InputBuffer)
-		if text != "" {
-			value, err := strconv.ParseUint(text, 16, 16)
-			if err == nil {
-				_ = v.dispatcher.Dispatch(ActionSetWatcherPendingAddr, uint16(value))
-				_ = v.dispatcher.Dispatch(ActionCommitWatcherPending, nil)
-			}
-		} else {
-			_ = v.dispatcher.Dispatch(ActionSetWatcherPendingAddr, nil)
-		}
-		v.closeInput()
-		return true
-	}
-	if ch == KeyBackspace() || ch == 127 || ch == 8 {
-		v.replaceOnNextInput = false
-		text := st.InputBuffer
-		if len(text) > 0 {
-			text = text[:len(text)-1]
-		}
-		v.updateInput(strings.ToUpper(text))
-		return true
-	}
-	if ch < 0 || ch > 255 {
-		return true
-	}
-	char := strings.ToUpper(string(rune(ch)))
-	if !((char >= "0" && char <= "9") || (char >= "A" && char <= "F")) {
-		return true
-	}
-	text := strings.ToUpper(st.InputBuffer)
-	if v.replaceOnNextInput {
-		text = ""
-		v.replaceOnNextInput = false
-	}
-	if len(text) >= 4 {
-		return true
-	}
-	v.updateInput(text + char)
-	return true
 }
 
 func (v *WatchersViewer) handleSearchInput(ch int) bool {
@@ -339,16 +249,10 @@ func (v *WatchersViewer) handleSearchInput(ch int) bool {
 		return true
 	}
 	if ch == KeyBackspace() || ch == 127 || ch == 8 {
-		v.replaceOnNextInput = false
 		if v.searchInput.Backspace() {
 			_ = v.dispatcher.Dispatch(ActionSetInputBuffer, v.searchInput.Buffer())
 		}
 		return true
-	}
-	if v.replaceOnNextInput {
-		_ = v.searchInput.SetBuffer("")
-		_ = v.dispatcher.Dispatch(ActionSetInputBuffer, v.searchInput.Buffer())
-		v.replaceOnNextInput = false
 	}
 	if v.searchInput.AppendChar(ch) {
 		_ = v.dispatcher.Dispatch(ActionSetInputBuffer, v.searchInput.Buffer())
@@ -360,7 +264,7 @@ func (v *WatchersViewer) onSearchChange(text string) {
 	if v.dispatcher == nil {
 		return
 	}
-	addr, ok := FindSymbolByComment(text)
+	addr, ok := FindSymbolOrAddress(text)
 	if !ok {
 		_ = v.dispatcher.Dispatch(ActionSetWatcherPendingAddr, nil)
 		return

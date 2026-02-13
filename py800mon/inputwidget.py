@@ -3,6 +3,7 @@ import curses
 from .actions import Actions
 from .app import InputComponent, VisualComponent
 from .appstate import state
+from .memory import parse_hex_u16
 from .ui import Color
 
 
@@ -113,7 +114,7 @@ class AddressInputWidget(InputWidget):
     def _to_value(self):
         if not self._buffer:
             return None
-        return int(self._buffer, 16)
+        return parse_hex_u16(self._buffer)
 
     def render(self, force_redraw=False):
         self.window.cursor = 0, 0
