@@ -44,6 +44,17 @@ def disasm_6502_one(start_addr: int, data: bytes) -> str:
     return f"{raw_text:<8} {asm_text}"
 
 
+def assemble_6502_one(addr: int, statement: str) -> bytes:
+    text = str(statement).split(";", 1)[0].strip()
+    if not text:
+        raise SyntaxError("Empty instruction")
+    assembler = _get_assembler()
+    data = assembler.assemble(text, pc=int(addr) & 0xFFFF)
+    if not data:
+        raise SyntaxError("Assembly produced no bytes")
+    return bytes(int(v) & 0xFF for v in data)
+
+
 def disasm_6502_one_parts(start_addr: int, data: bytes) -> tuple[str, str]:
     ins = disasm_6502_one_decoded(start_addr, data)
     if ins is None:
@@ -100,6 +111,24 @@ def _build_mpu(start_addr: int, data: bytes):
     for offset, byte in enumerate(data):
         mpu.memory[(start + offset) & 0xFFFF] = byte
     return mpu, start
+
+
+_ASSEMBLER = None
+
+
+def _get_assembler():
+    global _ASSEMBLER
+    if _ASSEMBLER is not None:
+        return _ASSEMBLER
+    try:
+        from py65.assembler import Assembler
+        from py65.devices.mpu6502 import MPU
+    except ModuleNotFoundError as exc:
+        raise RuntimeError(
+            "Missing dependency: py65. Install project dependencies first."
+        ) from exc
+    _ASSEMBLER = Assembler(MPU())
+    return _ASSEMBLER
 
 
 def _decode_instruction(mpu, pc: int, remain: int) -> DecodedInstruction:
