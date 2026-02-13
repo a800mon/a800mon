@@ -115,6 +115,8 @@ class Window:
         self.on_blur = None
         self._tags = []
         self._tags_by_id = {}
+        self.outer = None
+        self.inner = None
 
     @property
     def visible(self):
@@ -198,7 +200,7 @@ class Window:
         self.redraw_title()
 
     def redraw_title(self):
-        if not self._border or not hasattr(self, "outer"):
+        if not self._border or self.outer is None:
             self._dirty = True
             return
         focus_attr = self._frame_attr()

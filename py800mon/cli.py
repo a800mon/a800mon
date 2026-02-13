@@ -5,6 +5,7 @@ import struct
 import sys
 
 from .atascii import atascii_to_screen, text_to_atascii
+from .breakpoints import format_bp_condition, parse_bp_condition
 from .datastructures import CpuState
 from .disasm import disasm_6502, disasm_6502_one
 from .displaylist import (DLPTRS_ADDR, DMACTL_ADDR, DMACTL_HW_ADDR,
@@ -59,45 +60,6 @@ EMULATOR_CAPABILITIES = [
     (0x001F, "libpng support (HAVE_LIBPNG)"),
     (0x0020, "zlib support (HAVE_LIBZ)"),
 ]
-
-BP_CONDITION_TYPES = {
-    "pc": 1,
-    "a": 2,
-    "x": 3,
-    "y": 4,
-    "s": 5,
-    "read": 6,
-    "write": 7,
-    "access": 8,
-}
-BP_TYPE_NAMES = {
-    1: "pc",
-    2: "a",
-    3: "x",
-    4: "y",
-    5: "s",
-    6: "read",
-    7: "write",
-    8: "access",
-    9: "mem",
-}
-BP_OPS = {
-    "<": 1,
-    "<=": 2,
-    "=": 3,
-    "==": 3,
-    "!=": 4,
-    ">=": 5,
-    ">": 6,
-}
-BP_OP_NAMES = {
-    1: "<",
-    2: "<=",
-    3: "==",
-    4: "!=",
-    5: ">=",
-    6: ">",
-}
 
 SET_REG_TARGETS = {
     "pc": 1,
@@ -760,19 +722,22 @@ def _cmd_emulator_config(args):
 
 
 def _cmd_bp_list(args):
-    enabled, clauses = async_to_sync(_rpc(args.socket).breakpoint_list())
-    sys.stdout.write(f"Enabled: {_format_on_off_badge(enabled)}\n")
-    if not clauses:
+    bp = async_to_sync(_rpc(args.socket).breakpoint_list())
+    sys.stdout.write(f"Enabled: {_format_on_off_badge(bp.enabled)}\n")
+    if not bp.clauses:
         sys.stdout.write("No breakpoint clauses.\n")
         return 0
-    for idx, clause in enumerate(clauses, start=1):
-        cond_text = " && ".join(_format_bp_condition(cond) for cond in clause)
+    for idx, clause in enumerate(bp.clauses, start=1):
+        cond_text = " && ".join(format_bp_condition(cond) for cond in clause.conditions)
         sys.stdout.write(f"#{idx:02d} {cond_text}\n")
     return 0
 
 
 def _cmd_bp_add(args):
-    conditions = [_parse_bp_condition(text) for text in args.conditions]
+    try:
+        conditions = [parse_bp_condition(text) for text in args.conditions]
+    except ValueError as ex:
+        raise SystemExit(str(ex)) from ex
     idx = async_to_sync(_rpc(args.socket).breakpoint_add_clause(conditions))
     sys.stdout.write(f"Added clause #{idx + 1}\n")
     return 0
@@ -1242,68 +1207,6 @@ def _parse_bool(value):
 
 def _fmt_bytes(values):
     return " ".join(f"{value:02X}" for value in values)
-
-
-def _split_bp_expression(expr):
-    text = expr.strip()
-    for op in ("<=", ">=", "==", "!=", "=", "<", ">"):
-        pos = text.find(op)
-        if pos > 0:
-            left = text[:pos].strip()
-            right = text[pos + len(op):].strip()
-            if not right:
-                break
-            return left, op, right
-    raise SystemExit(f"Invalid breakpoint condition: {expr}")
-
-
-def _parse_bp_condition(expr):
-    left, op, value_text = _split_bp_expression(expr)
-    op_id = BP_OPS.get(op)
-    if op_id is None:
-        raise SystemExit(f"Invalid breakpoint operator in condition: {expr}")
-    left_key = left.strip().lower()
-    addr = 0
-    cond_type = BP_CONDITION_TYPES.get(left_key)
-    if cond_type is None:
-        if left_key.startswith("mem[") and left_key.endswith("]"):
-            cond_type = 9
-            try:
-                addr = parse_hex(left_key[4:-1])
-            except ValueError as ex:
-                raise SystemExit(f"Invalid memory address in condition: {expr}") from ex
-        elif left_key.startswith("mem:"):
-            cond_type = 9
-            try:
-                addr = parse_hex(left_key[4:])
-            except ValueError as ex:
-                raise SystemExit(f"Invalid memory address in condition: {expr}") from ex
-        else:
-            raise SystemExit(f"Invalid breakpoint source in condition: {expr}")
-    try:
-        value = parse_hex(value_text)
-    except ValueError as ex:
-        raise SystemExit(f"Invalid breakpoint value in condition: {expr}") from ex
-    if value < 0 or value > 0xFFFF:
-        raise SystemExit(f"Breakpoint value out of range (0..FFFF): {value_text}")
-    if addr < 0 or addr > 0xFFFF:
-        raise SystemExit(f"Breakpoint address out of range (0..FFFF): {left}")
-    return cond_type, op_id, addr, value
-
-
-def _format_bp_value(cond_type, value):
-    if cond_type in (2, 3, 4, 5):
-        return f"${value:02X}"
-    return f"${value:04X}"
-
-
-def _format_bp_condition(cond):
-    cond_type, op, addr, value = cond
-    op_text = BP_OP_NAMES.get(op, f"op{op}")
-    if cond_type == 9:
-        return f"mem[{addr:04X}] {op_text} {_format_bp_value(cond_type, value)}"
-    name = BP_TYPE_NAMES.get(cond_type, f"type{cond_type}")
-    return f"{name} {op_text} {_format_bp_value(cond_type, value)}"
 
 
 def _cli_color_enabled():

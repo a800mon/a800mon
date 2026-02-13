@@ -37,6 +37,12 @@ class BreakpointClauseEntry:
     conditions: tuple[BreakpointConditionEntry, ...]
 
 
+@dataclasses.dataclass(frozen=True)
+class Breakpoint:
+    enabled: bool
+    clauses: tuple[BreakpointClauseEntry, ...]
+
+
 @dataclasses.dataclass
 class CpuState:
     xpos: int = 0

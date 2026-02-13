@@ -1,8 +1,20 @@
 from .app import VisualRpcComponent
 from .appstate import state
-from .datastructures import BreakpointClauseEntry, BreakpointConditionEntry
+from .datastructures import Breakpoint, BreakpointClauseEntry, BreakpointConditionEntry
+from .memory import parse_hex
 from .rpc import RpcException
 from .ui import Color
+
+BP_CONDITION_TYPES = {
+    "pc": 1,
+    "a": 2,
+    "x": 3,
+    "y": 4,
+    "s": 5,
+    "read": 6,
+    "write": 7,
+    "access": 8,
+}
 
 BP_TYPE_NAMES = {
     1: "pc",
@@ -24,6 +36,86 @@ BP_OP_NAMES = {
     6: ">",
 }
 
+BP_OPS = {
+    "<": 1,
+    "<=": 2,
+    "=": 3,
+    "==": 3,
+    "!=": 4,
+    ">=": 5,
+    ">": 6,
+}
+
+
+def split_bp_expression(expr: str) -> tuple[str, str, str]:
+    text = expr.strip()
+    for op in ("<=", ">=", "==", "!=", "=", "<", ">"):
+        pos = text.find(op)
+        if pos <= 0:
+            continue
+        left = text[:pos].strip()
+        right = text[pos + len(op):].strip()
+        if right:
+            return left, op, right
+    raise ValueError(f"Invalid breakpoint condition: {expr}")
+
+
+def parse_bp_condition(expr: str) -> BreakpointConditionEntry:
+    left, op, value_text = split_bp_expression(expr)
+    op_id = BP_OPS.get(op)
+    if op_id is None:
+        raise ValueError(f"Invalid breakpoint operator in condition: {expr}")
+    left_key = left.strip().lower()
+    addr = 0
+    cond_type = BP_CONDITION_TYPES.get(left_key)
+    if cond_type is None:
+        if left_key.startswith("mem[") and left_key.endswith("]"):
+            cond_type = 9
+            try:
+                addr = parse_hex(left_key[4:-1])
+            except ValueError as ex:
+                raise ValueError(f"Invalid memory address in condition: {expr}") from ex
+        elif left_key.startswith("mem:"):
+            cond_type = 9
+            try:
+                addr = parse_hex(left_key[4:])
+            except ValueError as ex:
+                raise ValueError(f"Invalid memory address in condition: {expr}") from ex
+        else:
+            raise ValueError(f"Invalid breakpoint source in condition: {expr}")
+    try:
+        value = parse_hex(value_text)
+    except ValueError as ex:
+        raise ValueError(f"Invalid breakpoint value in condition: {expr}") from ex
+    if value < 0 or value > 0xFFFF:
+        raise ValueError(f"Breakpoint value out of range (0..FFFF): {value_text}")
+    if addr < 0 or addr > 0xFFFF:
+        raise ValueError(f"Breakpoint address out of range (0..FFFF): {left}")
+    return BreakpointConditionEntry(
+        cond_type=cond_type & 0xFF,
+        op=op_id & 0xFF,
+        addr=addr & 0xFFFF,
+        value=value & 0xFFFF,
+    )
+
+
+def format_bp_value(cond_type: int, value: int) -> str:
+    if cond_type in (2, 3, 4, 5):
+        return f"${value:02X}"
+    return f"${value:04X}"
+
+
+def format_bp_condition(cond: BreakpointConditionEntry) -> str:
+    cond_type = cond.cond_type
+    op = cond.op
+    addr = cond.addr
+    value = cond.value
+    op_text = BP_OP_NAMES.get(op, f"op{op}")
+    if cond_type == 9:
+        return f"mem[{addr:04X}] {op_text} {format_bp_value(cond_type, value)}"
+    name = BP_TYPE_NAMES.get(cond_type, f"type{cond_type}")
+    return f"{name} {op_text} {format_bp_value(cond_type, value)}"
+
 
 class BreakpointsViewer(VisualRpcComponent):
     def __init__(self, *args, **kwargs):
@@ -44,31 +136,21 @@ class BreakpointsViewer(VisualRpcComponent):
             return False
         self._last_state_seq = cur_seq
         try:
-            enabled, clauses = await self.rpc.breakpoint_list()
+            bp = await self.rpc.breakpoint_list()
         except RpcException:
             return False
-        parsed = []
-        for clause in clauses:
-            conds = []
-            for cond_type, op, addr, value in clause:
-                conds.append(
-                    BreakpointConditionEntry(
-                        cond_type=cond_type & 0xFF,
-                        op=op & 0xFF,
-                        addr=addr & 0xFFFF,
-                        value=value & 0xFFFF,
-                    )
-                )
-            parsed.append(BreakpointClauseEntry(conditions=tuple(conds)))
-        snapshot = (bool(enabled), tuple(parsed))
+        snapshot = bp
         if snapshot == self._last_snapshot:
             return False
         self._last_snapshot = snapshot
         if (
             self._dispatcher is not None
-            and (state.breakpoints_enabled != enabled or state.breakpoints != parsed)
+            and (
+                state.breakpoints_enabled != bp.enabled
+                or state.breakpoints != list(bp.clauses)
+            )
         ):
-            self._dispatcher.update_breakpoints(enabled, parsed)
+            self._dispatcher.update_breakpoints(bp.enabled, list(bp.clauses))
         return True
 
     def attach_dispatcher(self, dispatcher):

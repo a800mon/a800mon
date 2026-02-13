@@ -16,6 +16,11 @@ type TopBar struct {
 	lastSnapshot string
 }
 
+type topbarSegment struct {
+	text  string
+	color Color
+}
+
 func NewTopBar(window *Window) *TopBar {
 	return &TopBar{BaseVisualComponent: NewBaseVisualComponent(window)}
 }
@@ -47,18 +52,16 @@ func (t *TopBar) Render(_force bool) {
 		start = 0
 	}
 	w.Cursor(start, 0)
-	segments := [][2]any{
-		{crashLabel(st.Crashed), crashColor(st.Crashed)},
-		{" UP ", ColorText},
-		{fmt.Sprintf(" %s ", formatHMS(st.EmuMS)), ColorTopbar},
-		{" RS ", ColorText},
-		{fmt.Sprintf(" %s ", formatHMS(st.ResetMS)), ColorTopbar},
-		{fmt.Sprintf(" %3d ms ", st.MonitorFrameTimeMS), ColorText},
+	segments := []topbarSegment{
+		{text: crashLabel(st.Crashed), color: crashColor(st.Crashed)},
+		{text: " UP ", color: ColorText},
+		{text: fmt.Sprintf(" %s ", formatHMS(st.EmuMS)), color: ColorTopbar},
+		{text: " RS ", color: ColorText},
+		{text: fmt.Sprintf(" %s ", formatHMS(st.ResetMS)), color: ColorTopbar},
+		{text: fmt.Sprintf(" %3d ms ", st.MonitorFrameTimeMS), color: ColorText},
 	}
 	for _, segment := range segments {
-		text := segment[0].(string)
-		color := segment[1].(Color)
-		w.Print(text, color.Attr(), false)
+		w.Print(segment.text, segment.color.Attr(), false)
 	}
 }
 

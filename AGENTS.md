@@ -35,6 +35,7 @@ This repository contains `a800mon`, a curses-based monitor UI and CLI for Atari8
 - **CLI/UI responsibility**: CLI/UI handlers should orchestrate input/output only. They must call dedicated logic/RPC methods and avoid embedding protocol parsing or domain logic.
 - **Logic vs usage split**: keep reusable logic/state machines in dedicated modules/classes; keep prompt/dispatch glue in CLI entry modules.
 - **Breakpoints architecture**: breakpoint business logic must be separated from CLI wiring and transport calls; CLI should only parse args, call dedicated APIs, and print results.
+- **Breakpoint expression parser**: parse/format of breakpoint expressions (CLI/UI syntax) must live in breakpoint modules, not in CLI command files.
 
 ## Shortcuts and Layers
 - Layers are defined in `ShortcutLayer` (`py800mon/shortcuts.py`).

@@ -4,6 +4,9 @@ import struct
 
 from .datastructures import (
     AnticState,
+    Breakpoint,
+    BreakpointClauseEntry,
+    BreakpointConditionEntry,
     CartSlotState,
     CartState,
     CpuHistoryEntry,
@@ -198,13 +201,13 @@ class RpcClient:
         if len(conds) > 20:
             raise RpcException("Breakpoint clause exceeds maximum of 20 conditions.")
         payload = struct.pack("<HBB", 0xFFFF, len(conds), 0)
-        for cond_type, op, addr, value in conds:
+        for cond in conds:
             payload += struct.pack(
                 "<BBHH",
-                int(cond_type) & 0xFF,
-                int(op) & 0xFF,
-                int(addr) & 0xFFFF,
-                int(value) & 0xFFFF,
+                int(cond.cond_type) & 0xFF,
+                int(cond.op) & 0xFF,
+                int(cond.addr) & 0xFFFF,
+                int(cond.value) & 0xFFFF,
             )
         data = await self.call(Command.BP_ADD_CLAUSE, payload)
         if len(data) < 2:
@@ -222,7 +225,7 @@ class RpcClient:
             raise RpcException("BP_SET_ENABLED payload too short")
         return bool(data[0])
 
-    async def breakpoint_list(self):
+    async def breakpoint_list(self) -> Breakpoint:
         data = await self.call(Command.BP_LIST)
         if len(data) < 3:
             raise RpcException("BP_LIST payload too short")
@@ -240,10 +243,17 @@ class RpcClient:
                 if offset + 6 > len(data):
                     raise RpcException("BP_LIST payload too short (condition)")
                 cond_type, op, addr, value = struct.unpack_from("<BBHH", data, offset)
-                clause.append((cond_type, op, addr, value))
+                clause.append(
+                    BreakpointConditionEntry(
+                        cond_type=cond_type & 0xFF,
+                        op=op & 0xFF,
+                        addr=addr & 0xFFFF,
+                        value=value & 0xFFFF,
+                    )
+                )
                 offset += 6
-            clauses.append(clause)
-        return enabled, clauses
+            clauses.append(BreakpointClauseEntry(conditions=tuple(clause)))
+        return Breakpoint(enabled=enabled, clauses=tuple(clauses))
 
     async def build_features(self) -> list[int]:
         data = await self.call(Command.BUILD_FEATURES)
