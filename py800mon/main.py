@@ -105,12 +105,20 @@ async def main(scr, socket_path):
 
     def init_screen(scr):
         w, h = scr.size
-        wcpu.reshape(x=0, y=h - 5, w=w, h=3)
-        left_total_h = max(2, wcpu.y - 3)
-        dlist_h = max(1, left_total_h // 2)
-        watch_h = max(1, left_total_h - dlist_h)
-        wdlist.reshape(x=0, y=2, w=40, h=dlist_h)
-        wwatch.reshape(x=0, y=2 + dlist_h, w=40, h=watch_h)
+        top_y = 1
+        breakpoints_h_target = 13
+        wcpu.reshape(x=0, y=h - 4, w=w, h=3)
+        old_upper_h = max(1, wcpu.y - top_y - 1)
+        upper_h = old_upper_h + 1
+        left_total_h = max(2, old_upper_h)
+        old_dlist_h = max(1, left_total_h // 2)
+        dlist_h = old_dlist_h
+        watch_h = max(1, left_total_h - old_dlist_h + 1)
+        transfer = min(4, max(0, watch_h - 1))
+        dlist_h += transfer
+        watch_h -= transfer
+        wdlist.reshape(x=0, y=top_y, w=40, h=dlist_h)
+        wwatch.reshape(x=0, y=top_y + dlist_h, w=40, h=watch_h)
         right_x = wdlist.x + wdlist.w + 2
         right_total = max(1, w - right_x)
         gap = 2
@@ -136,62 +144,70 @@ async def main(scr, socket_path):
                 history_w = max(1, remaining // 2)
                 disasm_w = max(1, remaining - history_w)
 
-            wscreen.reshape(x=right_x, y=2, w=screen_w, h=wcpu.y - 3)
+            wscreen.reshape(x=right_x, y=top_y, w=screen_w, h=upper_h)
             wdisasm.reshape(
                 x=wscreen.x + wscreen.w + gap,
-                y=2,
+                y=top_y,
                 w=disasm_w,
-                h=wcpu.y - 3,
+                h=upper_h,
             )
             history_x = wdisasm.x + wdisasm.w + gap
-            history_h = max(1, wcpu.y - 3)
+            history_h = upper_h
             if wbreakpoints.visible:
-                history_top_h = max(1, history_h // 2)
+                break_h = min(
+                    breakpoints_h_target,
+                    max(1, history_h - 1),
+                )
+                history_top_h = max(1, history_h - break_h)
                 break_h = max(1, history_h - history_top_h)
                 whistory.reshape(
                     x=history_x,
-                    y=2,
+                    y=top_y,
                     w=history_w,
                     h=history_top_h,
                 )
                 wbreakpoints.reshape(
                     x=history_x,
-                    y=2 + history_top_h,
+                    y=top_y + history_top_h,
                     w=history_w,
                     h=break_h,
                 )
             else:
                 whistory.reshape(
                     x=history_x,
-                    y=2,
+                    y=top_y,
                     w=history_w,
                     h=history_h,
                 )
         else:
             screen_w = base_screen_w
             history_w = base_history_w
-            wscreen.reshape(x=right_x, y=2, w=screen_w, h=wcpu.y - 3)
+            wscreen.reshape(x=right_x, y=top_y, w=screen_w, h=upper_h)
             history_x = wscreen.x + wscreen.w + gap
-            history_h = max(1, wcpu.y - 3)
+            history_h = upper_h
             if wbreakpoints.visible:
-                history_top_h = max(1, history_h // 2)
+                break_h = min(
+                    breakpoints_h_target,
+                    max(1, history_h - 1),
+                )
+                history_top_h = max(1, history_h - break_h)
                 break_h = max(1, history_h - history_top_h)
                 whistory.reshape(
                     x=history_x,
-                    y=2,
+                    y=top_y,
                     w=history_w,
                     h=history_top_h,
                 )
                 wbreakpoints.reshape(
                     x=history_x,
-                    y=2 + history_top_h,
+                    y=top_y + history_top_h,
                     w=history_w,
                     h=break_h,
                 )
             else:
                 whistory.reshape(
                     x=history_x,
-                    y=2,
+                    y=top_y,
                     w=history_w,
                     h=history_h,
                 )

@@ -121,27 +121,38 @@ func RunMonitor(ctx context.Context, socketPath string) error {
 
 	layout := func(scr *Screen) {
 		w, h := scr.Size()
-		wcpu.Reshape(0, h-5, w, 3)
-		leftTotalH := wcpu.Y() - 3
+		topY := 1
+		breakpointsHTarget := 13
+		wcpu.Reshape(0, h-4, w, 3)
+		oldUpperH := wcpu.Y() - topY - 1
+		if oldUpperH < 1 {
+			oldUpperH = 1
+		}
+		upperH := oldUpperH + 1
+		leftTotalH := oldUpperH
 		if leftTotalH < 2 {
 			leftTotalH = 2
 		}
-		dlistH := leftTotalH / 2
-		if dlistH < 1 {
-			dlistH = 1
+		oldDlistH := leftTotalH / 2
+		if oldDlistH < 1 {
+			oldDlistH = 1
 		}
-		watchH := leftTotalH - dlistH
+		dlistH := oldDlistH
+		watchH := leftTotalH - oldDlistH + 1
+		transfer := min(4, max(0, watchH-1))
+		dlistH += transfer
+		watchH -= transfer
 		if watchH < 1 {
 			watchH = 1
 		}
-		wdlist.Reshape(0, 2, 40, dlistH)
-		wwatch.Reshape(0, 2+dlistH, 40, watchH)
-		rightX := wdlist.X() + wdlist.Width() + 2
+		gap := 1
+		wdlist.Reshape(0, topY, 40, dlistH)
+		wwatch.Reshape(0, topY+dlistH, 40, watchH)
+		rightX := wdlist.X() + wdlist.w + gap
 		rightTotal := w - rightX
 		if rightTotal < 1 {
 			rightTotal = 1
 		}
-		gap := 2
 		baseScreenW := 1
 		baseHistoryW := 1
 		if rightTotal > gap+2 {
@@ -167,47 +178,39 @@ func RunMonitor(ctx context.Context, socketPath string) error {
 			if screenW < 1 {
 				screenW = 1
 			}
-			wscreen.Reshape(rightX, 2, screenW, wcpu.Y()-3)
-			wdisasm.Reshape(wscreen.X()+wscreen.Width()+gap, 2, disasmW, wcpu.Y()-3)
-			historyX := wdisasm.X() + wdisasm.Width() + gap
-			historyH := wcpu.Y() - 3
+			wscreen.Reshape(rightX, topY, screenW, upperH)
+			disasmX := rightX + screenW + gap
+			wdisasm.Reshape(disasmX, topY, disasmW, upperH)
+			historyX := disasmX + disasmW + gap
+			historyH := upperH
 			if historyH < 1 {
 				historyH = 1
 			}
 			if wbreakpoints.Visible() {
-				historyTopH := historyH / 2
-				if historyTopH < 1 {
-					historyTopH = 1
-				}
-				breakH := historyH - historyTopH
-				if breakH < 1 {
-					breakH = 1
-				}
-				whistory.Reshape(historyX, 2, historyW, historyTopH)
-				wbreakpoints.Reshape(historyX, 2+historyTopH, historyW, breakH)
+				breakH := min(breakpointsHTarget, max(1, historyH-1))
+				historyTopH := max(1, historyH-breakH)
+				breakH = max(1, historyH-historyTopH)
+				whistory.Reshape(historyX, topY, historyW, historyTopH)
+				wbreakpoints.Reshape(historyX, topY+historyTopH, historyW, breakH)
 			} else {
-				whistory.Reshape(historyX, 2, historyW, historyH)
+				whistory.Reshape(historyX, topY, historyW, historyH)
 			}
 		} else {
-			wscreen.Reshape(rightX, 2, baseScreenW, wcpu.Y()-3)
-			historyX := wscreen.X() + wscreen.Width() + gap
-			historyH := wcpu.Y() - 3
+			screenW := baseScreenW
+			wscreen.Reshape(rightX, topY, screenW, upperH)
+			historyX := rightX + screenW + gap
+			historyH := upperH
 			if historyH < 1 {
 				historyH = 1
 			}
 			if wbreakpoints.Visible() {
-				historyTopH := historyH / 2
-				if historyTopH < 1 {
-					historyTopH = 1
-				}
-				breakH := historyH - historyTopH
-				if breakH < 1 {
-					breakH = 1
-				}
-				whistory.Reshape(historyX, 2, baseHistoryW, historyTopH)
-				wbreakpoints.Reshape(historyX, 2+historyTopH, baseHistoryW, breakH)
+				breakH := min(breakpointsHTarget, max(1, historyH-1))
+				historyTopH := max(1, historyH-breakH)
+				breakH = max(1, historyH-historyTopH)
+				whistory.Reshape(historyX, topY, baseHistoryW, historyTopH)
+				wbreakpoints.Reshape(historyX, topY+historyTopH, baseHistoryW, breakH)
 			} else {
-				whistory.Reshape(historyX, 2, baseHistoryW, historyH)
+				whistory.Reshape(historyX, topY, baseHistoryW, historyH)
 			}
 		}
 		top.Reshape(0, 0, w, 1)
