@@ -14,6 +14,7 @@ import (
 type ScreenBufferInspector struct {
 	BaseVisualComponent
 	rpc            *RpcClient
+	grid           *GridWidget
 	screen         *Screen
 	lastUseATASCII bool
 	lastSnapshot   string
@@ -26,7 +27,14 @@ type rowRangeIndex struct {
 }
 
 func NewScreenBufferInspector(rpc *RpcClient, window *Window) *ScreenBufferInspector {
-	return &ScreenBufferInspector{BaseVisualComponent: NewBaseVisualComponent(window), rpc: rpc}
+	grid := NewGridWidget(window)
+	grid.SetGridColumnGap(0)
+	grid.SetGridSelectionEnabled(false)
+	return &ScreenBufferInspector{
+		BaseVisualComponent: NewBaseVisualComponent(window),
+		rpc:                 rpc,
+		grid:                grid,
+	}
 }
 
 func (s *ScreenBufferInspector) BindInput(screen *Screen) {
@@ -40,8 +48,8 @@ func (s *ScreenBufferInspector) HandleInput(ch int) bool {
 	if s.screen == nil || !(s.screen.Focused() == s.Window()) {
 		return false
 	}
-	if !(ch == int(' ')) {
-		return false
+	if !(ch == int(' ') || ch == int('a') || ch == int('A')) {
+		return s.grid.HandleGridNavigationInput(ch)
 	}
 	store.setUseATASCII(!State().UseATASCII)
 	return true
@@ -150,7 +158,6 @@ func (s *ScreenBufferInspector) Render(_force bool) {
 		w.SetTagActive("atascii", st.UseATASCII)
 		w.SetTagActive("ascii", !st.UseATASCII)
 	}
-	w.Cursor(0, 0)
 	contentWidth := w.Width() - 8
 	if contentWidth < 0 {
 		contentWidth = 0
@@ -158,9 +165,6 @@ func (s *ScreenBufferInspector) Render(_force bool) {
 	rows := make([]ScreenRow, 0, w.Height())
 	drawWidth := 0
 	for _, row := range st.ScreenRows {
-		if len(rows) >= w.Height() {
-			break
-		}
 		if len(row.Data) > contentWidth {
 			row.Data = row.Data[:contentWidth]
 		}
@@ -172,7 +176,7 @@ func (s *ScreenBufferInspector) Render(_force bool) {
 	if drawWidth > contentWidth {
 		drawWidth = contentWidth
 	}
-	printed := 0
+	gridRows := make([]GridRow, 0, len(rows))
 	for _, row := range rows {
 		rowLen := len(row.Data)
 		if rowLen > drawWidth {
@@ -184,45 +188,82 @@ func (s *ScreenBufferInspector) Render(_force bool) {
 			leftPad = (drawWidth - rowLen) / 2
 			rightPad = drawWidth - rowLen - leftPad
 		}
-		w.Print(formatHex16(row.Addr)+": ", ColorAddress.Attr(), false)
+		cells := GridRow{{Text: formatHex16(row.Addr) + ": ", Attr: ColorAddress.Attr()}}
 		if leftPad > 0 {
-			w.Print(strings.Repeat("·", leftPad), ColorUnused.Attr(), false)
+			cells = append(cells, GridCell{Text: strings.Repeat("·", leftPad), Attr: ColorUnused.Attr()})
 		}
-		w.Print(renderScreenChars(row.Data[:rowLen], st.UseATASCII), ColorText.Attr(), false)
+		cells = append(cells, renderScreenRuns(row.Data[:rowLen], st.UseATASCII)...)
 		if rightPad > 0 {
-			w.Print(strings.Repeat("·", rightPad), ColorUnused.Attr(), false)
+			cells = append(cells, GridCell{Text: strings.Repeat("·", rightPad), Attr: ColorUnused.Attr()})
 		}
-		w.ClearToEOL(false)
-		w.Newline()
-		printed++
+		gridRows = append(gridRows, cells)
 	}
-	w.ClearToBottom()
+	s.grid.SetGridColumnWidths(nil)
+	s.grid.SetGridRows(gridRows)
+	s.grid.SetGridSelected(nil)
+	s.grid.RenderGrid()
 }
 
-func renderScreenChars(data []byte, useATASCII bool) string {
+func renderScreenRuns(data []byte, useATASCII bool) []GridCell {
 	if len(data) == 0 {
-		return ""
+		return nil
 	}
-	out := make([]rune, 0, len(data))
-	for _, b := range data {
-		if !useATASCII {
+	if !useATASCII {
+		out := make([]rune, 0, len(data))
+		for _, b := range data {
+			if b <= 0 {
+				out = append(out, ' ')
+				continue
+			}
 			v := b & 0x7F
 			if v >= 32 && v <= 126 {
 				out = append(out, rune(v))
 			} else {
 				out = append(out, '.')
 			}
-			continue
 		}
-		a := atascii.ScreenToATASCII(b)
-		r := []rune(atascii.LookupPrintable(a & 0x7F))
-		if len(r) == 0 {
-			out = append(out, '.')
-		} else {
-			out = append(out, r[0])
-		}
+		return []GridCell{{Text: string(out), Attr: ColorText.Attr()}}
 	}
-	return string(out)
+	runs := make([]GridCell, 0, len(data))
+	buf := make([]rune, 0, len(data))
+	curAttr := -1
+	flush := func() {
+		if len(buf) == 0 || curAttr < 0 {
+			return
+		}
+		runs = append(runs, GridCell{Text: string(buf), Attr: ColorText.Attr() | curAttr})
+		buf = buf[:0]
+	}
+	for _, b := range data {
+		ch, attr := renderScreenCharATASCII(b)
+		if curAttr < 0 {
+			curAttr = attr
+		}
+		if attr != curAttr {
+			flush()
+			curAttr = attr
+		}
+		buf = append(buf, ch)
+	}
+	flush()
+	return runs
+}
+
+func renderScreenCharATASCII(b byte) (rune, int) {
+	if b <= 0 {
+		return ' ', 0
+	}
+	a := atascii.ScreenToATASCII(b)
+	r := []rune(atascii.LookupPrintable(a & 0x7F))
+	ch := '.'
+	if len(r) > 0 {
+		ch = r[0]
+	}
+	attr := 0
+	if (a & 0x80) != 0 {
+		attr = AttrReverse()
+	}
+	return ch, attr
 }
 
 func buildScreenRowsSnapshot(rows []ScreenRow) string {

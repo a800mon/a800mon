@@ -7,7 +7,7 @@ from .atascii import atascii_to_curses, screen_to_atascii
 from .datastructures import ScreenBuffer
 from .displaylist import DMACTL_ADDR, DMACTL_HW_ADDR, DisplayListMemoryMapper
 from .rpc import RpcException
-from .ui import Color
+from .ui import Color, GridCell, GridWidget
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -40,6 +40,8 @@ class ScreenBufferCell:
 class ScreenBufferInspector(VisualRpcComponent):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.grid = GridWidget(self.window, col_gap=0)
+        self.grid.set_grid_selection_enabled(False)
         self._inspect = False
         self._cx = 0
         self._cy = 0
@@ -103,10 +105,10 @@ class ScreenBufferInspector(VisualRpcComponent):
             return False
         if self._screen is None or not self._screen.focused == self.window:
             return False
-        if not ch == ord(" "):
-            return False
-        store.set_use_atascii(not state.use_atascii)
-        return True
+        if ch in (ord(" "), ord("a"), ord("A")):
+            store.set_use_atascii(not state.use_atascii)
+            return True
+        return self.grid.handle_grid_navigation_input(ch)
 
     @property
     def cursor(self) -> tuple[int, int]:
@@ -126,7 +128,6 @@ class ScreenBufferInspector(VisualRpcComponent):
             self.window.set_tag_active("atascii", state.use_atascii)
             self.window.set_tag_active("ascii", not state.use_atascii)
 
-        self.window.cursor = 0, 0
         segs = state.dlist.screen_segments(self._dmactl)
         active_seg = None
         if state.dlist_selected_region is not None and segs:
@@ -137,8 +138,6 @@ class ScreenBufferInspector(VisualRpcComponent):
             content_width = 0
         rows_to_draw = []
         for row_info in state.screen_buffer.row_slices:
-            if len(rows_to_draw) >= self.window._ih:
-                break
             parsed = _parse_row_info(row_info, state.screen_buffer.start_address)
             if not parsed:
                 continue
@@ -158,7 +157,7 @@ class ScreenBufferInspector(VisualRpcComponent):
         if draw_width > content_width:
             draw_width = content_width
 
-        printed_rows = 0
+        rows = []
         for start_addr, row in rows_to_draw:
             row = row[:draw_width]
             left_pad = 0
@@ -166,22 +165,20 @@ class ScreenBufferInspector(VisualRpcComponent):
             if draw_width > len(row):
                 left_pad = (draw_width - len(row)) // 2
                 right_pad = draw_width - len(row) - left_pad
-            self.window.print(f"{start_addr:04X}: ", attr=Color.ADDRESS.attr())
+            cells = [GridCell(f"{start_addr:04X}: ", Color.ADDRESS.attr())]
             if left_pad > 0:
-                self.window.print("·" * left_pad, attr=Color.UNUSED.attr())
+                cells.append(GridCell("·" * left_pad, Color.UNUSED.attr()))
             for text, attr in _render_runs(row, state.use_atascii):
-                self.window.print(text, attr=attr)
+                if text:
+                    cells.append(GridCell(text, attr))
             if right_pad > 0:
-                self.window.print("·" * right_pad, attr=Color.UNUSED.attr())
-            self.window.clear_to_eol()
-            self.window.newline()
-            printed_rows += 1
-        self.window.clear_to_bottom()
+                cells.append(GridCell("·" * right_pad, Color.UNUSED.attr()))
+            rows.append(tuple(cells))
 
-        if not self._inspect:
-            return
-
-        self.window.invert_char(self._cx, self._cy)
+        self.grid.set_grid_column_widths(())
+        self.grid.set_grid_rows(rows)
+        self.grid.set_grid_selected(None)
+        self.grid.render_grid()
 
     async def update(self):
         try:
