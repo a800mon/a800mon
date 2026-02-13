@@ -78,14 +78,15 @@ func (h *HistoryViewer) Render(_force bool) {
 	}
 
 	if h.reverseOrder {
-		rows := reverseHistory(st.History)
 		limit := ih - 1
 		if limit < 0 {
 			limit = 0
 		}
+		rows := st.History
 		if len(rows) > limit {
 			rows = rows[:limit]
 		}
+		rows = reverseHistory(rows)
 		for _, e := range rows {
 			h.printHistoryRow(e)
 		}
