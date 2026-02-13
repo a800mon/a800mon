@@ -49,6 +49,7 @@ type AppStateData struct {
 
 type DisasmRow struct {
 	Addr           uint16
+	Size           int
 	RawText        string
 	AsmText        string
 	Mnemonic       string

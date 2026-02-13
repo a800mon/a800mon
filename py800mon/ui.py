@@ -477,9 +477,13 @@ class GridWidget:
         self._grid_col_widths = ()
         self._grid_offset = 0
         self._grid_selected = None
+        self._grid_active_row = None
         self._grid_col_gap = max(0, int(col_gap))
         self._grid_show_scrollbar = bool(show_scrollbar)
         self._grid_selection_enabled = True
+        self._grid_virtual_total = None
+        self._grid_virtual_offset = None
+        self._grid_virtual_page = None
 
     @property
     def grid_offset(self) -> int:
@@ -488,6 +492,10 @@ class GridWidget:
     @property
     def grid_selected(self) -> int | None:
         return self._grid_selected
+
+    @property
+    def grid_active_row(self) -> int | None:
+        return self._grid_active_row
 
     def set_grid_rows(self, rows):
         normalized = []
@@ -520,6 +528,16 @@ class GridWidget:
         self.ensure_grid_selected_visible()
         self.window._dirty = True
 
+    def set_grid_active_row(self, idx: int | None):
+        if idx is None or len(self._grid_rows) == 0:
+            new_row = None
+        else:
+            new_row = max(0, min(int(idx), len(self._grid_rows) - 1))
+        if new_row == self._grid_active_row:
+            return
+        self._grid_active_row = new_row
+        self.window._dirty = True
+
     def set_grid_offset(self, offset: int):
         max_offset = self._grid_max_offset()
         new_offset = max(0, min(int(offset), max_offset))
@@ -540,6 +558,37 @@ class GridWidget:
         if new_value == self._grid_selection_enabled:
             return
         self._grid_selection_enabled = new_value
+        self.window._dirty = True
+
+    def set_grid_virtual_scroll(
+        self, total: int, offset: int, page: int | None = None
+    ):
+        total_i = max(1, int(total))
+        page_i = total_i if page is None else max(1, min(int(page), total_i))
+        offset_i = max(0, min(int(offset), total_i - 1))
+        new_state = (total_i, offset_i, page_i)
+        cur_state = (
+            self._grid_virtual_total,
+            self._grid_virtual_offset,
+            self._grid_virtual_page,
+        )
+        if cur_state == new_state:
+            return
+        self._grid_virtual_total = total_i
+        self._grid_virtual_offset = offset_i
+        self._grid_virtual_page = page_i
+        self.window._dirty = True
+
+    def clear_grid_virtual_scroll(self):
+        if (
+            self._grid_virtual_total is None
+            and self._grid_virtual_offset is None
+            and self._grid_virtual_page is None
+        ):
+            return
+        self._grid_virtual_total = None
+        self._grid_virtual_offset = None
+        self._grid_virtual_page = None
         self.window._dirty = True
 
     def scroll_grid(self, delta: int):
@@ -651,11 +700,8 @@ class GridWidget:
             return
         self._clamp_grid_state()
         has_focus = w._screen is None or w._screen.focused is w
-        show_scrollbar = (
-            self._grid_show_scrollbar
-            and w._iw > 0
-            and len(self._grid_rows) > ih
-        )
+        total, scroll_offset, scroll_page = self._scrollbar_metrics()
+        show_scrollbar = self._grid_show_scrollbar and w._iw > 0 and total > scroll_page
         content_w = w._iw - 1 if show_scrollbar else w._iw
         if content_w < 0:
             content_w = 0
@@ -664,15 +710,15 @@ class GridWidget:
         drawn = 0
         for row_idx in range(start, end):
             row = self._grid_rows[row_idx]
-            rev_attr = (
-                curses.A_REVERSE
-                if (
-                    self._grid_selection_enabled
-                    and has_focus
-                    and self._grid_selected == row_idx
-                )
-                else 0
-            )
+            row_attr = 0
+            if self._grid_active_row == row_idx:
+                row_attr |= curses.A_REVERSE
+            if (
+                self._grid_selection_enabled
+                and has_focus
+                and self._grid_selected == row_idx
+            ):
+                row_attr |= curses.A_REVERSE
             x = 0
             for col_idx, cell in enumerate(row):
                 text = cell.text
@@ -686,25 +732,25 @@ class GridWidget:
                     cut = min(len(text), content_w - x)
                     if cut > 0:
                         w.cursor = (x, drawn)
-                        w.print(text[:cut], attr=cell.attr | rev_attr)
+                        w.print(text[:cut], attr=cell.attr | row_attr)
                         x += cut
                 if col_idx < len(row) - 1 and self._grid_col_gap > 0 and x < content_w:
                     gap = min(self._grid_col_gap, content_w - x)
                     if gap > 0:
                         w.cursor = (x, drawn)
-                        w.print(" " * gap, attr=rev_attr)
+                        w.print(" " * gap, attr=row_attr)
                         x += gap
             w.cursor = (x, drawn)
             if x < content_w:
                 fill = " " * (content_w - x)
-                w.print(fill, attr=rev_attr)
+                w.print(fill, attr=row_attr)
             w.clear_to_eol()
             drawn += 1
         if drawn < ih:
             w.cursor = (0, drawn)
             w.clear_to_bottom()
         if show_scrollbar:
-            self._draw_grid_scrollbar()
+            self._draw_grid_scrollbar(total, scroll_offset, scroll_page)
 
     def _grid_max_offset(self) -> int:
         return max(0, len(self._grid_rows) - self.window._ih)
@@ -717,22 +763,46 @@ class GridWidget:
                 self._grid_selected = len(self._grid_rows) - 1
             elif self._grid_selected < 0:
                 self._grid_selected = 0
+        if self._grid_active_row is not None:
+            if not self._grid_rows:
+                self._grid_active_row = None
+            elif self._grid_active_row >= len(self._grid_rows):
+                self._grid_active_row = len(self._grid_rows) - 1
+            elif self._grid_active_row < 0:
+                self._grid_active_row = 0
         self._grid_offset = max(0, min(self._grid_offset, self._grid_max_offset()))
         self.ensure_grid_selected_visible()
 
-    def _draw_grid_scrollbar(self):
+    def _scrollbar_metrics(self):
+        ih = self.window._ih
+        if (
+            self._grid_virtual_total is None
+            or self._grid_virtual_offset is None
+            or self._grid_virtual_page is None
+        ):
+            total = len(self._grid_rows)
+            page = max(1, ih)
+            offset = max(0, min(self._grid_offset, max(0, total - page)))
+            return total, offset, page
+        total = max(1, int(self._grid_virtual_total))
+        page = max(1, min(int(self._grid_virtual_page), total))
+        offset = max(0, min(int(self._grid_virtual_offset), total - 1))
+        if offset > total - page:
+            offset = total - page
+        return total, offset, page
+
+    def _draw_grid_scrollbar(self, total: int, offset: int, page: int):
         w = self.window
         if w._iw <= 0 or w._ih <= 0:
             return
-        total = len(self._grid_rows)
-        if total <= w._ih:
+        if total <= page:
             return
 
         track_h = w._ih
-        max_offset = max(1, total - w._ih)
-        thumb_h = max(1, (w._ih * w._ih) // total)
+        max_offset = max(1, total - page)
+        thumb_h = max(1, (track_h * page) // total)
         thumb_h = min(track_h, thumb_h)
-        thumb_top = (self._grid_offset * (track_h - thumb_h)) // max_offset
+        thumb_top = (offset * (track_h - thumb_h)) // max_offset
 
         x = w._iw - 1
         track_attr = Color.WINDOW_TITLE.attr()

@@ -5,7 +5,7 @@ from .appstate import state
 from .disasm import DecodedInstruction, disasm_6502_decoded
 from .memory import parse_hex_u16
 from .rpc import RpcException
-from .ui import Color
+from .ui import Color, GridCell, GridWidget
 
 ASM_COMMENT_COL = 18
 FOLLOW_TAG_ID = "follow"
@@ -14,6 +14,7 @@ FOLLOW_TAG_ID = "follow"
 class DisassemblyViewer(VisualRpcComponent):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.grid = GridWidget(self.window, col_gap=0)
         self._last_addr = None
         self._lines = []
         self._follow = True
@@ -29,8 +30,8 @@ class DisassemblyViewer(VisualRpcComponent):
         self._replace_on_next_input = False
         self._pending_nav = None
         self._last_snapshot = None
-        self._render_cache = []
-        self._rendered_rows = 0
+        self._selected_addr = None
+        self._selected_row_hint = None
 
     def bind_input(
         self,
@@ -52,6 +53,8 @@ class DisassemblyViewer(VisualRpcComponent):
         v = int(addr) & 0xFFFF
         self._set_follow(False)
         self._current_addr = v
+        self._selected_addr = v
+        self._selected_row_hint = 0
         self._last_state_addr = v
         self._last_addr = None
 
@@ -74,6 +77,8 @@ class DisassemblyViewer(VisualRpcComponent):
             else:
                 self._current_addr = state.disassembly_addr & 0xFFFF
                 self._last_state_addr = self._current_addr
+            self._selected_addr = self._current_addr
+            self._selected_row_hint = 0
         elif (
             state.disassembly_addr is not None
             and (state.disassembly_addr & 0xFFFF) != self._last_state_addr
@@ -94,6 +99,8 @@ class DisassemblyViewer(VisualRpcComponent):
                 if lines is None:
                     return False
             self._current_addr = addr
+            self._selected_addr = None
+            self._selected_row_hint = None
 
         self._lines = lines
         self._last_addr = addr
@@ -110,7 +117,7 @@ class DisassemblyViewer(VisualRpcComponent):
         except RpcException:
             return None
         decoded = disasm_6502_decoded(addr, data)
-        return self._linear_instructions(decoded)[: self.window._ih]
+        return self._linear_instructions(decoded)
 
     def _linear_instructions(self, decoded):
         lines = []
@@ -204,10 +211,13 @@ class DisassemblyViewer(VisualRpcComponent):
                 return addrs[0]
         return 0xFFFF
 
-    def _manual_set_addr(self, addr: int):
+    def _manual_set_addr(self, addr: int, reset_selection: bool = True):
         v = int(addr) & 0xFFFF
         self._set_follow(False)
         self._current_addr = v
+        if reset_selection:
+            self._selected_addr = v
+            self._selected_row_hint = 0
         self._last_state_addr = v
         self._last_addr = None
         if self._set_address is not None:
@@ -297,9 +307,12 @@ class DisassemblyViewer(VisualRpcComponent):
             return
         idx = min(steps, len(lines) - 1)
         if idx <= 0:
-            self._manual_set_addr(self._current_addr)
+            self._manual_set_addr(self._current_addr, reset_selection=False)
             return
-        self._manual_set_addr(await self._clamp_to_end_page(lines[idx].addr))
+        self._manual_set_addr(
+            await self._clamp_to_end_page(lines[idx].addr),
+            reset_selection=False,
+        )
 
     async def _move_up_steps(self, steps: int):
         if steps <= 0:
@@ -308,7 +321,7 @@ class DisassemblyViewer(VisualRpcComponent):
             self._current_addr = state.cpu.pc & 0xFFFF
         addr = self._current_addr
         addr = await self._find_prev_start_n(addr, steps)
-        self._manual_set_addr(addr)
+        self._manual_set_addr(addr, reset_selection=False)
 
     def _queue_nav(self, action: str, steps: int = 0):
         self._pending_nav = (action, int(steps))
@@ -319,10 +332,10 @@ class DisassemblyViewer(VisualRpcComponent):
         action, steps = self._pending_nav
         self._pending_nav = None
         if action == "home":
-            self._manual_set_addr(0x0000)
+            self._manual_set_addr(0x0000, reset_selection=False)
             return
         if action == "end":
-            self._manual_set_addr(await self._find_end_start())
+            self._manual_set_addr(await self._find_end_start(), reset_selection=False)
             return
         if action == "down":
             await self._move_down_steps(steps)
@@ -336,43 +349,118 @@ class DisassemblyViewer(VisualRpcComponent):
         ih = self.window._ih
         if ih <= 0:
             return
-        if len(self._render_cache) != ih:
-            self._render_cache = [None] * ih
-            force_redraw = True
-        rows = self._lines[: self.window._ih]
-        for row_idx, ins in enumerate(rows):
+        rows = []
+        active_row = None
+        for row_idx, ins in enumerate(self._lines):
             same_row_as_input = row_idx == self._input_row
             suppress = state.input_focus and same_row_as_input
-            rev_attr = curses.A_REVERSE if (
-                ins.addr == pc and not suppress) else 0
-            input_text = (
-                state.input_buffer[-4:].upper().rjust(4, "0")
-                if state.input_focus and same_row_as_input
-                else ""
+            if active_row is None and ins.addr == pc and not suppress:
+                active_row = row_idx
+            cells = [
+                GridCell(f"{ins.addr:04X}:", Color.ADDRESS.attr()),
+                GridCell(" ", Color.TEXT.attr()),
+                GridCell(f"{ins.raw_text:<8} ", Color.TEXT.attr()),
+            ]
+            cells.extend(self._asm_cells(ins))
+            rows.append(tuple(cells))
+        self.grid.set_grid_column_widths(())
+        self.grid.set_grid_rows(rows)
+        selected_row = None
+        if self._selected_addr is not None:
+            selected_row = self._find_row_by_addr(self._selected_addr)
+        if selected_row is None and self._selected_row_hint is not None and rows:
+            vis_count = min(len(rows), ih)
+            selected_row = max(0, min(int(self._selected_row_hint), vis_count - 1))
+        if selected_row is None:
+            if self._follow and active_row is not None:
+                selected_row = active_row
+            elif rows:
+                selected_row = 0
+        if selected_row is not None and rows:
+            vis_count = min(len(rows), ih)
+            selected_row = max(0, min(int(selected_row), vis_count - 1))
+            self._selected_row_hint = selected_row
+            self._selected_addr = int(self._lines[selected_row].addr) & 0xFFFF
+        else:
+            self._selected_row_hint = None
+            self._selected_addr = None
+        self.grid.set_grid_selected(selected_row)
+        self.grid.set_grid_active_row(active_row)
+        if self._lines:
+            start_addr = int(self._lines[0].addr) & 0xFFFF
+            anchor_addr = start_addr
+            if active_row is not None and 0 <= active_row < len(self._lines):
+                anchor_addr = int(self._lines[active_row].addr) & 0xFFFF
+            end_addr = start_addr + 1
+            for ins in self._lines[:ih]:
+                size = int(getattr(ins, "size", 1))
+                if size < 1:
+                    size = 1
+                cand = int(ins.addr) + size
+                if cand > end_addr:
+                    end_addr = cand
+            if end_addr > 0x10000:
+                end_addr = 0x10000
+            page = max(1, end_addr - start_addr)
+            self.grid.set_grid_virtual_scroll(0x10000, anchor_addr, page)
+        else:
+            offset = (
+                int(self._current_addr) & 0xFFFF
+                if self._current_addr is not None
+                else 0
             )
-            row_sig = (ins, rev_attr, input_text)
-            if not force_redraw and self._render_cache[row_idx] == row_sig:
-                continue
-            self.window.cursor = (0, row_idx)
-            self.window.print(f"{ins.addr:04X}:",
-                              attr=Color.ADDRESS.attr() | rev_attr)
-            self.window.print(" ", attr=rev_attr)
-            self.window.print(f"{ins.raw_text:<8} ", attr=rev_attr)
-            self._print_asm(ins, rev_attr)
-            self.window.fill_to_eol(attr=rev_attr)
-            if input_text:
-                attr = Color.ADDRESS.attr() | curses.A_REVERSE
-                self.window.cursor = (0, self._input_row)
-                self.window.print(input_text, attr=attr)
-                self.window.print("  ", attr=attr)
-            self._render_cache[row_idx] = row_sig
-        next_row = len(rows)
-        if next_row < ih and (force_redraw or self._rendered_rows != next_row):
-            self.window.cursor = (0, next_row)
-            self.window.clear_to_bottom()
-        for idx in range(next_row, ih):
-            self._render_cache[idx] = None
-        self._rendered_rows = next_row
+            self.grid.set_grid_virtual_scroll(0x10000, offset, 1)
+        self.grid.set_grid_offset(0)
+        self.grid.render_grid()
+        if state.input_focus and self._input_row < ih:
+            input_text = state.input_buffer[-4:].upper().rjust(4, "0")
+            attr = Color.ADDRESS.attr() | curses.A_REVERSE
+            self.window.cursor = (0, self._input_row)
+            self.window.print(input_text, attr=attr)
+            self.window.print("  ", attr=attr)
+
+    def _find_row_by_addr(self, addr: int | None) -> int | None:
+        if addr is None:
+            return None
+        target = int(addr) & 0xFFFF
+        for idx, ins in enumerate(self._lines):
+            if (int(ins.addr) & 0xFFFF) == target:
+                return idx
+        return None
+
+    def _current_selected_row(self) -> int | None:
+        vis_count = min(len(self._lines), self.window._ih)
+        if vis_count <= 0:
+            return None
+        row = self._find_row_by_addr(self._selected_addr)
+        if row is not None:
+            return max(0, min(int(row), vis_count - 1))
+        if self._selected_row_hint is not None:
+            return max(0, min(int(self._selected_row_hint), vis_count - 1))
+        cur = self.grid.grid_selected
+        if cur is None:
+            return 0
+        return max(0, min(int(cur), vis_count - 1))
+
+    def _move_selected_rows(self, delta: int) -> bool:
+        vis_count = min(len(self._lines), self.window._ih)
+        if vis_count <= 0:
+            self._selected_addr = None
+            self._selected_row_hint = None
+            return False
+        cur = self._current_selected_row()
+        if cur is None:
+            cur = 0
+        cur = max(0, min(int(cur), vis_count - 1))
+        nxt = max(0, min(cur + int(delta), vis_count - 1))
+        if nxt != cur:
+            self._selected_row_hint = nxt
+            self._selected_addr = int(self._lines[nxt].addr) & 0xFFFF
+            self.grid.set_grid_selected(nxt)
+            return True
+        self._selected_row_hint = cur
+        self._selected_addr = None
+        return False
 
     def handle_input(self, ch):
         if state.input_focus:
@@ -392,27 +480,41 @@ class DisassemblyViewer(VisualRpcComponent):
             return True
 
         if ch in (curses.KEY_HOME, 262):
+            self._selected_row_hint = 0
+            self._selected_addr = None
             self._queue_nav("home")
             return True
 
         if ch in (curses.KEY_END, 360):
+            self._selected_row_hint = max(0, self.window._ih - 1)
+            self._selected_addr = None
             self._queue_nav("end")
             return True
 
         if ch == curses.KEY_DOWN:
-            self._queue_nav("down", 1)
+            self._set_follow(False)
+            if not self._move_selected_rows(1):
+                self._queue_nav("down", 1)
             return True
 
         if ch == curses.KEY_UP:
-            self._queue_nav("up", 1)
+            self._set_follow(False)
+            if not self._move_selected_rows(-1):
+                self._queue_nav("up", 1)
             return True
 
         if ch in (curses.KEY_NPAGE, 338):
-            self._queue_nav("down", max(1, self.window._ih - 1))
+            self._set_follow(False)
+            step = max(1, self.window._ih - 1)
+            if not self._move_selected_rows(step):
+                self._queue_nav("down", step)
             return True
 
         if ch in (curses.KEY_PPAGE, 339):
-            self._queue_nav("up", max(1, self.window._ih - 1))
+            self._set_follow(False)
+            step = max(1, self.window._ih - 1)
+            if not self._move_selected_rows(-step):
+                self._queue_nav("up", step)
             return True
 
         if ch != ord("/"):
@@ -441,30 +543,32 @@ class DisassemblyViewer(VisualRpcComponent):
         self._follow = bool(enabled)
         self.window.set_tag_active(FOLLOW_TAG_ID, self._follow)
 
-    def _print_asm(self, ins: DecodedInstruction, rev_attr: int = 0):
+    def _asm_cells(self, ins: DecodedInstruction):
         if not ins.mnemonic:
-            return
+            return []
+        text_attr = Color.TEXT.attr()
+        addr_attr = Color.ADDRESS.attr()
+        cells = [GridCell(ins.mnemonic, Color.MNEMONIC.attr())]
         core_len = len(ins.mnemonic)
-        self.window.print(ins.mnemonic, attr=Color.MNEMONIC.attr() | rev_attr)
         if ins.operand:
-            self.window.print(" ", attr=rev_attr)
+            cells.append(GridCell(" ", text_attr))
             core_len += 1 + len(ins.operand)
             if ins.flow_target is None or ins.operand_addr_span is None:
-                self.window.print(ins.operand, attr=rev_attr)
+                cells.append(GridCell(ins.operand, text_attr))
             else:
                 start, end = ins.operand_addr_span
-                self.window.print(ins.operand[:start], attr=rev_attr)
-                self.window.print(
-                    ins.operand[start:end], attr=Color.ADDRESS.attr() | rev_attr
-                )
-                self.window.print(ins.operand[end:], attr=rev_attr)
+                if start > 0:
+                    cells.append(GridCell(ins.operand[:start], text_attr))
+                cells.append(GridCell(ins.operand[start:end], addr_attr))
+                if end < len(ins.operand):
+                    cells.append(GridCell(ins.operand[end:], text_attr))
         if not ins.comment:
-            return
+            return cells
         if core_len < ASM_COMMENT_COL:
-            self.window.print(
-                " " * (ASM_COMMENT_COL - core_len), attr=rev_attr)
-        self.window.print(" ", attr=rev_attr)
-        self.window.print(ins.comment, attr=Color.COMMENT.attr() | rev_attr)
+            cells.append(GridCell(" " * (ASM_COMMENT_COL - core_len), text_attr))
+        cells.append(GridCell(" ", text_attr))
+        cells.append(GridCell(ins.comment, Color.COMMENT.attr()))
+        return cells
 
     def _close_address_input(self):
         self._replace_on_next_input = False
