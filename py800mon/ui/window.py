@@ -48,13 +48,16 @@ class Window:
         parent = self._screen.scr
 
         ph, pw = parent.getmaxyx()
-        rw = min(pw - self.x, self.w)
-        rh = min(ph - self.y, self.h)
-        if self._border:
-            self.outer = parent.subwin(rh, rw, self.y, self.x)
+        sx = max(0, min(self.x, pw - 1))
+        sy = max(0, min(self.y, ph - 1))
+        rw = max(1, min(self.w, pw - sx))
+        rh = max(1, min(self.h, ph - sy))
+        if self._border and rw >= 2 and rh >= 2:
+            self.outer = parent.subwin(rh, rw, sy, sx)
             self.inner = self.outer.derwin(rh - 2, rw - 2, 1, 1)
         else:
-            self.inner = parent.subwin(rh, rw, self.y, self.x)
+            self.outer = None
+            self.inner = parent.subwin(rh, rw, sy, sx)
         self._ih, self._iw = self.inner.getmaxyx()
         self.redraw()
 
@@ -65,7 +68,16 @@ class Window:
 
     @cursor.setter
     def cursor(self, v):
-        self.inner.move(v[1], v[0])
+        if not self.inner:
+            return
+        if self._iw <= 0 or self._ih <= 0:
+            return
+        x = max(0, min(int(v[0]), self._iw - 1))
+        y = max(0, min(int(v[1]), self._ih - 1))
+        try:
+            self.inner.move(y, x)
+        except curses.error:
+            pass
 
     def get_char(self, x, y):
         v = self.inner.inch(y, x)
@@ -100,7 +112,7 @@ class Window:
         self.inner.move(cy, cx)
 
     def redraw(self):
-        if self._border:
+        if self._border and self.outer:
             focus_attr = self._frame_attr()
             self.outer.attron(focus_attr)
             self.outer.box()
@@ -219,7 +231,10 @@ class Window:
         self.refresh()
 
     def move(self, x, y):
-        self.outer.mvwin(y, x)
+        if self.outer:
+            self.outer.mvwin(y, x)
+        elif self.inner:
+            self.inner.mvwin(y, x)
         self.x = x
         self.y = y
 
@@ -229,7 +244,7 @@ class Window:
         self.cursor = (0, 0)
 
     def _do_refresh(self):
-        if self._border:
+        if self._border and self.outer:
             self.outer.noutrefresh()
         self.inner.noutrefresh()
         if self.reset_cursor_on_refresh:

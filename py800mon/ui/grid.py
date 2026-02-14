@@ -453,11 +453,13 @@ class GridWidget:
                         w.cursor = (x, viewport_y + drawn)
                         w.print(" " * gap, attr=row_attr)
                         x += gap
-            w.cursor = (x, viewport_y + drawn)
             if x < content_w:
+                w.cursor = (x, viewport_y + drawn)
                 fill = " " * (content_w - x)
                 w.print(fill, attr=row_attr)
-            w.clear_to_eol()
+            if x < w._iw:
+                w.cursor = (x, viewport_y + drawn)
+                w.clear_to_eol()
             drawn += 1
         if drawn < ih:
             start_y = viewport_y + drawn
