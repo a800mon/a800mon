@@ -46,6 +46,10 @@ This repository contains `a800mon`, a curses-based monitor UI and CLI for Atari8
 - **Coding standards compliance**: follow `CODING_STANDARDS.md` for every change.
 - **Decision rule**: if request scope/intent is ambiguous or there is more than one valid design path, ask the operator for a decision before implementing.
 - **No autonomy drift**: do not take autonomous architectural/product decisions without explicit operator direction (unwanted autonomy is treated as a failure).
+- **Execution honesty**: do not claim a change was done unless it is actually present in code.
+- **Execution rigor**: execute requested changes scrupulously and verify affected code paths before reporting completion.
+- **No fake cleanup**: if asked to remove a pattern (e.g. `bool(...)`, `int(...)`, `is None`), do a repository-wide grep pass, apply fixes, then run grep again and report leftovers explicitly.
+- **No redundant wrappers**: do not keep/add redundant coercions (`bool/int/str`) when type is already guaranteed.
 - UI/UX quality is important even for a developer tool: preserve readability, visual stability, and interaction ergonomics.
 - Prefer clean code and maintainable design choices (clear naming, small focused functions, explicit dependencies, and minimal coupling) that reduce long-term maintenance cost.
 - Keep logic explicit. Avoid reflection, magic `getattr`/`setattr`, and implicit type coercion.

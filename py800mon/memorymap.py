@@ -1,4 +1,5 @@
 import re
+
 from .memory import parse_hex_u16
 
 # Generated from monitor.c builtin symbol tables.
@@ -838,6 +839,7 @@ _HEX_ADDR_RE = re.compile(r"\$([0-9A-Fa-f]{1,4})")
 _HEX_INPUT_RE = re.compile(r"^[0-9A-Fa-f]{1,4}$")
 _SYMBOL_ITEMS = tuple(sorted(_SYMBOLS.items()))
 
+
 def lookup_symbol(addr: int) -> str | None:
     return _SYMBOLS.get(addr & 0xFFFF)
 
@@ -882,6 +884,7 @@ def find_symbol_or_addr(query: str) -> int | None:
     if not _HEX_INPUT_RE.fullmatch(q):
         return None
     return parse_hex_u16(q)
+
 
 def comment_for_asm(asm_text: str) -> str:
     parts = asm_text.split(None, 1)

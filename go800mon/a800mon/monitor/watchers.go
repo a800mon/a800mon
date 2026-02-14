@@ -1,10 +1,12 @@
-package a800mon
+package monitor
 
 import (
 	"context"
 	"fmt"
 	"strconv"
 	"strings"
+
+	. "go800mon/a800mon"
 )
 
 type WatchersViewer struct {

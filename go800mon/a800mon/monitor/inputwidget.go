@@ -1,7 +1,9 @@
-package a800mon
+package monitor
 
 import (
 	"strings"
+
+	. "go800mon/a800mon"
 )
 
 type InputWidget struct {

@@ -9,9 +9,7 @@ def dump_memory_raw(buffer: bytes, use_atascii: bool = False) -> bytes:
     return bytes(screen_to_atascii(b) & 0xFF for b in buffer)
 
 
-def dump_memory_json(
-    address: int, buffer: bytes, use_atascii: bool = False
-) -> str:
+def dump_memory_json(address: int, buffer: bytes, use_atascii: bool = False) -> str:
     data = dump_memory_raw(buffer, use_atascii=use_atascii)
     payload = {"address": address, "buffer": list(data)}
     return json.dumps(payload)
@@ -32,7 +30,7 @@ def dump_memory_human(
 
     for offset in range(0, length, per_line):
         addr = (address + offset) & 0xFFFF
-        chunk = buffer[offset: offset + per_line]
+        chunk = buffer[offset : offset + per_line]
         parts = [f"{addr:04X}:"]
 
         if show_hex:

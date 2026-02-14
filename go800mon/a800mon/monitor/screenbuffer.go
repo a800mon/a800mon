@@ -1,4 +1,4 @@
-package a800mon
+package monitor
 
 import (
 	"context"
@@ -8,20 +8,21 @@ import (
 	"strings"
 	"time"
 
+	. "go800mon/a800mon"
 	"go800mon/internal/atascii"
 	dl "go800mon/internal/displaylist"
 )
 
 type ScreenBufferInspector struct {
 	BaseWindowComponent
-	rpc          *RpcClient
-	grid         *GridWidget
-	rows         []ScreenRow
-	hasUseATASCII bool
+	rpc            *RpcClient
+	grid           *GridWidget
+	rows           []ScreenRow
+	hasUseATASCII  bool
 	lastUseATASCII bool
-	lastSnapshot string
-	rpcThrottle  time.Duration
-	nextRPCAt    time.Time
+	lastSnapshot   string
+	rpcThrottle    time.Duration
+	nextRPCAt      time.Time
 }
 
 type rowRangeIndex struct {

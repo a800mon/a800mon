@@ -1,10 +1,7 @@
 import dataclasses
 import enum
 
-from .datastructures import (
-    CpuState,
-    DisplayList,
-)
+from ..datastructures import CpuState, DisplayList
 
 
 class AppMode(enum.Enum):
@@ -52,6 +49,7 @@ _state = AppStateData(
     breakpoints_supported=False,
 )
 
+
 class StateStore:
     def __init__(self, backing: AppStateData):
         self._s = backing
@@ -60,7 +58,7 @@ class StateStore:
         self._s.active_mode = mode
 
     def set_ui_frozen(self, enabled: bool):
-        self._s.ui_frozen = bool(enabled)
+        self._s.ui_frozen = enabled
 
     def set_disassembly_enabled(self, enabled: bool):
         self._s.disassembly_enabled = enabled
@@ -69,7 +67,7 @@ class StateStore:
         self._s.disassembly_addr = addr & 0xFFFF
 
     def set_breakpoints_supported(self, enabled: bool):
-        self._s.breakpoints_supported = bool(enabled)
+        self._s.breakpoints_supported = enabled
 
     def set_status(
         self, paused: bool, emu_ms: int, reset_ms: int, crashed: bool, state_seq: int

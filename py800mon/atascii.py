@@ -145,6 +145,7 @@ def screen_to_atascii(b):
         c -= 64
     return c | (b & 0x80)
 
+
 def atascii_to_screen(b):
     c = b & 0x7F
     if c < 32:

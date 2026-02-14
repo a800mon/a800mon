@@ -1,12 +1,12 @@
 import curses
 
-from .app import VisualRpcComponent
-from .datastructures import WatcherEntry
-from .inputwidget import InputWidget
-from .memorymap import find_symbol_or_addr, lookup_symbol
-from .rpc import RpcException
-from .actions import Actions
-from .ui import Color, GridWidget
+from ..actions import Actions
+from ..app import VisualRpcComponent
+from ..datastructures import WatcherEntry
+from ..memorymap import find_symbol_or_addr, lookup_symbol
+from ..rpc import RpcException
+from ..ui import Color, GridWidget
+from ..ui import InputWidget
 
 
 class WatchersViewer(VisualRpcComponent):
@@ -46,9 +46,7 @@ class WatchersViewer(VisualRpcComponent):
                 need = len(ranges) * 2
                 if len(data) < need:
                     raise RpcException("READ_MEMV payload too short")
-                values = [
-                    (data[i * 2], data[i * 2 + 1]) for i in range(len(ranges))
-                ]
+                values = [(data[i * 2], data[i * 2 + 1]) for i in range(len(ranges))]
             except RpcException:
                 values = []
                 try:
@@ -131,9 +129,7 @@ class WatchersViewer(VisualRpcComponent):
         if self._input_active:
             self.window.cursor = (0, y)
             text = self._search_input.buffer[:8]
-            self.window.print(
-                text.ljust(8), attr=Color.TEXT.attr() | curses.A_REVERSE
-            )
+            self.window.print(text.ljust(8), attr=Color.TEXT.attr() | curses.A_REVERSE)
             self.window.clear_to_eol()
             y += 1
         if self._pending_row and y < ih:

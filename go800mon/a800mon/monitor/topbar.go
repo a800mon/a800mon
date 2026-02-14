@@ -1,8 +1,10 @@
-package a800mon
+package monitor
 
 import (
 	"context"
 	"fmt"
+
+	. "go800mon/a800mon"
 )
 
 const (
@@ -59,9 +61,9 @@ func (t *TopBar) Render(_force bool) {
 	segments := []topbarSegment{
 		{text: crashLabel(st.Crashed), color: crashColor(st.Crashed)},
 		{text: " UP ", color: ColorText},
-		{text: fmt.Sprintf(" %s ", formatHMS(st.EmuMS)), color: ColorTopbar},
+		{text: fmt.Sprintf(" %s ", FormatHMS(st.EmuMS)), color: ColorTopbar},
 		{text: " RS ", color: ColorText},
-		{text: fmt.Sprintf(" %s ", formatHMS(st.ResetMS)), color: ColorTopbar},
+		{text: fmt.Sprintf(" %s ", FormatHMS(st.ResetMS)), color: ColorTopbar},
 		{text: fmt.Sprintf(" %3d ms ", st.MonitorFrameTimeMS), color: ColorText},
 	}
 	for _, segment := range segments {

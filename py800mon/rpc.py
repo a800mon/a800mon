@@ -220,7 +220,9 @@ class RpcClient:
         )
 
     async def breakpoint_set_enabled(self, enabled: bool):
-        data = await self.call(Command.BP_SET_ENABLED, struct.pack("<B", 1 if enabled else 0))
+        data = await self.call(
+            Command.BP_SET_ENABLED, struct.pack("<B", 1 if enabled else 0)
+        )
         if len(data) < 1:
             raise RpcException("BP_SET_ENABLED payload too short")
         return bool(data[0])
@@ -303,7 +305,9 @@ class RpcClient:
             )
         return [
             CpuHistoryEntry(y=y, x=x, pc=pc, op0=op0, op1=op1, op2=op2)
-            for y, x, pc, op0, op1, op2 in struct.iter_unpack("<BBHBBB", data[1:expected])
+            for y, x, pc, op0, op1, op2 in struct.iter_unpack(
+                "<BBHBBB", data[1:expected]
+            )
         ]
 
     async def gtia_state(self) -> GtiaState:
@@ -343,8 +347,8 @@ class RpcClient:
         data = await self.call(Command.ANTIC_STATE)
         if len(data) < 12:
             raise RpcException("ANTIC_STATE payload too short")
-        dmactl, chactl, dlist, hscrol, vscrol, pmbase, chbase, vcount, nmien, ypos = struct.unpack(
-            "<BBHBBBBBBH", data[:12]
+        dmactl, chactl, dlist, hscrol, vscrol, pmbase, chbase, vcount, nmien, ypos = (
+            struct.unpack("<BBHBBBBBBH", data[:12])
         )
         return AnticState(
             dmactl=dmactl,

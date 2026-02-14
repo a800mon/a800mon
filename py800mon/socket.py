@@ -114,8 +114,7 @@ class SocketTransport:
                 asyncio.open_unix_connection(self.path), timeout=self._timeout
             )
         except (OSError, asyncio.TimeoutError) as ex:
-            raise ConnectionError(
-                f"Cannot connect to socket {self.path}: {ex}")
+            raise ConnectionError(f"Cannot connect to socket {self.path}: {ex}")
         self._reader = reader
         self._writer = writer
         self._connected = True

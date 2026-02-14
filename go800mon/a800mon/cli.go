@@ -1001,7 +1001,7 @@ func cmdBPList(socket string) int {
 	for i, clause := range list.Clauses {
 		parts := make([]string, 0, len(clause))
 		for _, cond := range clause {
-			parts = append(parts, formatBPCondition(cond))
+			parts = append(parts, FormatBPCondition(cond))
 		}
 		fmt.Printf("#%02d %s\n", i+1, strings.Join(parts, " AND "))
 	}
@@ -1012,7 +1012,7 @@ func cmdBPAdd(socket string, args cliBPAddCmd) int {
 	if len(args.Conditions) == 0 {
 		return fail(errors.New("Specify at least one condition."))
 	}
-	clauses, err := parseBPClauses(strings.Join(args.Conditions, " "))
+	clauses, err := ParseBPClauses(strings.Join(args.Conditions, " "))
 	if err != nil {
 		return fail(err)
 	}

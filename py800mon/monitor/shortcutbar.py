@@ -1,7 +1,7 @@
-from .app import Component, VisualComponent
+from ..app import Component, VisualComponent
+from ..shortcuts import Shortcut
+from ..ui import Color
 from .appstate import state
-from .shortcuts import Shortcut
-from .ui import Color
 
 
 class ShortcutBar(VisualComponent):
@@ -25,8 +25,7 @@ class ShortcutBar(VisualComponent):
             layer = self._shortcuts.get(state.active_mode)
             if layer:
                 self._last_mode = state.active_mode
-                layer_text = layer.name[: self._mode_width].ljust(
-                    self._mode_width)
+                layer_text = layer.name[: self._mode_width].ljust(self._mode_width)
                 self.window.print(layer_text, layer.color.attr())
 
                 for shortcut in layer.get_shortcuts():

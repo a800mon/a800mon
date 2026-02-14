@@ -65,14 +65,14 @@ func (l *ShortcutLayer) List() []Shortcut {
 type ShortcutManager struct {
 	globals      map[int]Shortcut
 	globalsOrder []int
-	layers       map[AppMode]*ShortcutLayer
+	layers       map[int]*ShortcutLayer
 }
 
 func NewShortcutManager() *ShortcutManager {
 	return &ShortcutManager{
 		globals:      map[int]Shortcut{},
 		globalsOrder: []int{},
-		layers:       map[AppMode]*ShortcutLayer{},
+		layers:       map[int]*ShortcutLayer{},
 	}
 }
 
@@ -87,7 +87,7 @@ func (m *ShortcutManager) AddGlobal(shortcut Shortcut) error {
 	return nil
 }
 
-func (m *ShortcutManager) Add(mode AppMode, layer *ShortcutLayer) error {
+func (m *ShortcutManager) Add(mode int, layer *ShortcutLayer) error {
 	if _, ok := m.layers[mode]; ok {
 		return fmt.Errorf("layer already registered: %d", mode)
 	}
@@ -95,13 +95,32 @@ func (m *ShortcutManager) Add(mode AppMode, layer *ShortcutLayer) error {
 	return nil
 }
 
-func (m *ShortcutManager) Get(mode AppMode) *ShortcutLayer {
+func (m *ShortcutManager) Get(mode int) *ShortcutLayer {
 	return m.layers[mode]
 }
 
 func (m *ShortcutManager) Global(key int) (Shortcut, bool) {
 	s, ok := m.globals[normalizeShortcutKey(key)]
 	return s, ok
+}
+
+func (m *ShortcutManager) HandleInput(mode, key int) bool {
+	layer := m.Get(mode)
+	if layer != nil {
+		if shortcut, ok := layer.Get(key); ok {
+			if shortcut.Callback != nil {
+				shortcut.Callback()
+			}
+			return true
+		}
+	}
+	if shortcut, ok := m.Global(key); ok {
+		if shortcut.Callback != nil {
+			shortcut.Callback()
+		}
+		return true
+	}
+	return false
 }
 
 func normalizeShortcutKey(key int) int {

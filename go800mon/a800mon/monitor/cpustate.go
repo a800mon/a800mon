@@ -1,6 +1,7 @@
-package a800mon
+package monitor
 
 import "context"
+import . "go800mon/a800mon"
 
 type CpuStateViewer struct {
 	BaseWindowComponent
@@ -14,7 +15,7 @@ func NewCpuStateViewer(window *Window) *CpuStateViewer {
 
 func (v *CpuStateViewer) Update(_ctx context.Context) (bool, error) {
 	st := State()
-	snap := formatCPU(st.CPU) + "|" + st.CPUDisasm
+	snap := FormatCPU(st.CPU) + "|" + st.CPUDisasm
 	if v.lastSnapshot == snap {
 		return false, nil
 	}
@@ -24,7 +25,7 @@ func (v *CpuStateViewer) Update(_ctx context.Context) (bool, error) {
 
 func (v *CpuStateViewer) Render(_force bool) {
 	st := State()
-	line := formatCPU(st.CPU)
+	line := FormatCPU(st.CPU)
 	if st.CPUDisasm != "" {
 		line += "  " + st.CPUDisasm
 	}

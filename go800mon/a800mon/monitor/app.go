@@ -1,8 +1,10 @@
-package a800mon
+package monitor
 
 import (
 	"context"
 	"time"
+
+	. "go800mon/a800mon"
 )
 
 type Component interface {

@@ -1,8 +1,7 @@
 import curses
 
-from .app import VisualComponent
-from .memory import parse_hex_u16
-from .ui import Color
+from ..app import VisualComponent
+from .color import Color
 
 
 class InputWidget(VisualComponent):
@@ -61,8 +60,7 @@ class InputWidget(VisualComponent):
     def _append_char(self, ch: int) -> None:
         if ch < 0 or ch > 255:
             return
-        char = chr(ch)
-        char = self._normalize_char(char)
+        char = self._normalize_char(chr(ch))
         if not self._is_char_allowed(char):
             return
         if self.max_length is not None and len(self._buffer) >= self.max_length:
@@ -107,29 +105,3 @@ class InputWidget(VisualComponent):
         if cursor_x < 0:
             cursor_x = 0
         self.window.cursor = (cursor_x, 0)
-
-
-class AddressInputWidget(InputWidget):
-    def __init__(self, *args, **kwargs):
-        kwargs["max_length"] = 4
-        super().__init__(*args, **kwargs)
-
-    def _normalize_char(self, ch: str) -> str:
-        return ch.upper()
-
-    def _is_char_allowed(self, ch: str) -> bool:
-        return ("0" <= ch <= "9") or ("A" <= ch <= "F")
-
-    def _to_value(self):
-        if not self._buffer:
-            return None
-        return parse_hex_u16(self._buffer)
-
-    def render(self, force_redraw=False):
-        self.window.cursor = 0, 0
-        color = Color.INPUT_INVALID if self.invalid else self.color
-        attr = color.attr() | curses.A_REVERSE
-        text = self._buffer[-4:].upper().rjust(4, "0")
-        self.window.print(text, attr=attr)
-        self.window.fill_to_eol(attr=attr)
-        self.window.cursor = (4, 0)

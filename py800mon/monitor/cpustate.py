@@ -1,4 +1,4 @@
-from .app import Component, VisualComponent
+from ..app import Component, VisualComponent
 from .appstate import state
 
 

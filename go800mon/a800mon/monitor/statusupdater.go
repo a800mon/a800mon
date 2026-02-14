@@ -1,9 +1,10 @@
-package a800mon
+package monitor
 
 import (
 	"context"
 	"time"
 
+	. "go800mon/a800mon"
 	"go800mon/internal/disasm"
 )
 
@@ -113,7 +114,7 @@ func (s *StatusUpdater) updateCapabilities(ctx context.Context) bool {
 	}
 	supported := false
 	for _, id := range caps {
-		if id == capMonitorBreakpoints {
+		if id == CapMonitorBreakpoints {
 			supported = true
 			break
 		}

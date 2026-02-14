@@ -1,6 +1,6 @@
-from .app import Component, VisualComponent
+from ..app import Component, VisualComponent
+from ..ui import Color
 from .appstate import state
-from .ui import Color
 
 CRASH_LABEL = {
     True: (" CRASH ", Color.ERROR),
@@ -34,12 +34,10 @@ class TopBar(VisualComponent):
         self.window.cursor = 0, 0
         if state.last_rpc_error:
             self.window.print(f"{TITLE} ", Color.TOPBAR.attr())
-            self.window.print(
-                f" {state.last_rpc_error} ", Color.ERROR.attr())
+            self.window.print(f" {state.last_rpc_error} ", Color.ERROR.attr())
             self.window.fill_to_eol(attr=Color.ERROR.attr())
         else:
-            self.window.print(
-                f"{TITLE}     {COPYTIGHT}", Color.TOPBAR.attr())
+            self.window.print(f"{TITLE}     {COPYTIGHT}", Color.TOPBAR.attr())
             if state.ui_frozen:
                 self.window.print("   ", Color.TOPBAR.attr())
                 self.window.print(" FREEZE ", Color.ERROR.attr())
@@ -56,6 +54,7 @@ class TopBar(VisualComponent):
         self.window.cursor = (self.window._iw - TOPRIGHT_LEN, 0)
         for text, color in segments:
             self.window.print(text, attr=color.attr())
+
 
 def _format_hms(ms):
     total = max(0, int(ms // 1000))

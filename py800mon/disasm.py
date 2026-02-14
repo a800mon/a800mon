@@ -87,7 +87,7 @@ def disasm_6502_decoded(start_addr: int, data: bytes) -> list[DecodedInstruction
         if size > remain:
             size = remain
 
-        raw = data[consumed: consumed + size]
+        raw = data[consumed : consumed + size]
         raw_text = _fmt_bytes(raw)
         ins = dataclasses.replace(ins, size=size, raw=raw, raw_text=raw_text)
         decoded.append(ins)

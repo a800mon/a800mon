@@ -1,14 +1,14 @@
 import dataclasses
 import time
 
-from . import debug
-from .app import VisualRpcComponent
+from .. import debug
+from ..app import VisualRpcComponent
+from ..atascii import atascii_to_curses, screen_to_atascii
+from ..datastructures import ScreenBuffer
+from ..displaylist import DMACTL_ADDR, DMACTL_HW_ADDR, DisplayListMemoryMapper
+from ..rpc import RpcException
+from ..ui import Color, GridWidget
 from .appstate import state
-from .atascii import atascii_to_curses, screen_to_atascii
-from .datastructures import ScreenBuffer
-from .displaylist import DMACTL_ADDR, DMACTL_HW_ADDR, DisplayListMemoryMapper
-from .rpc import RpcException
-from .ui import Color, GridWidget
 
 
 @dataclasses.dataclass(frozen=True, slots=True)

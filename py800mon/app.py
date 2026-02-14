@@ -4,7 +4,7 @@ import enum
 import time
 
 from . import debug
-from .appstate import state
+from .monitor.appstate import state
 
 
 class StopLoop(Exception):
@@ -25,6 +25,7 @@ class Component:
 
     def handle_input(self, ch):
         return False
+
 
 class RpcComponent(Component):
     def __init__(self, rpc, *args, **kwargs):
@@ -161,7 +162,7 @@ class App:
     async def update_state(self):
         changed = False
         for component in self._components:
-            changed = bool(await component.update()) or changed
+            changed = await component.update() or changed
         return changed
 
     async def render_components(self, should_render=False, force_redraw=False):
@@ -171,8 +172,7 @@ class App:
                     continue
                 component.render(force_redraw=force_redraw)
         if force_redraw or any(
-            component.window.visible
-            and component.window._dirty
+            component.window.visible and component.window._dirty
             for component in self._visual_components
         ):
             self._screen.update()

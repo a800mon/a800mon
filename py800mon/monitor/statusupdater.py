@@ -1,13 +1,13 @@
 import asyncio
 import time
 
-from .app import EventType
+from ..actions import Actions
+from ..app import EventType
+from ..datastructures import CpuState
+from ..disasm import disasm_6502_one
+from ..emulator import CAP_MONITOR_BREAKPOINTS
+from ..rpc import RpcException
 from .appstate import state
-from .actions import Actions
-from .datastructures import CpuState
-from .disasm import disasm_6502_one
-from .emulator import CAP_MONITOR_BREAKPOINTS
-from .rpc import RpcException
 
 
 class StatusUpdater:
@@ -50,7 +50,7 @@ class StatusUpdater:
                 pass
 
     async def _poll_once(self, force_cpu_refresh=False):
-        had_error = bool(state.last_rpc_error)
+        had_error = state.last_rpc_error != ""
         try:
             status = await self._rpc.status()
         except RpcException:

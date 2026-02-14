@@ -1,10 +1,11 @@
-package a800mon
+package monitor
 
 import (
 	"context"
 	"fmt"
 	"strings"
 
+	. "go800mon/a800mon"
 	"go800mon/internal/disasm"
 )
 

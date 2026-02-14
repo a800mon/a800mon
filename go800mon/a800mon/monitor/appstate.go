@@ -1,8 +1,9 @@
-package a800mon
+package monitor
 
 import (
 	"sync"
 
+	. "go800mon/a800mon"
 	"go800mon/internal/displaylist"
 )
 

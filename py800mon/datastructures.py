@@ -317,7 +317,7 @@ class ScreenBuffer:
                 if start <= cur < stop:
                     take = min(remaining, stop - cur)
                     buf_start = offset + (cur - start)
-                    parts.append(self.buffer[buf_start: buf_start + take])
+                    parts.append(self.buffer[buf_start : buf_start + take])
                     cur += take
                     remaining -= take
                     break

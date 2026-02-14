@@ -1,10 +1,11 @@
-package a800mon
+package monitor
 
 import (
 	"context"
 	"strconv"
 	"strings"
 
+	. "go800mon/a800mon"
 	"go800mon/internal/disasm"
 	"go800mon/internal/memory"
 )

@@ -4,6 +4,7 @@ import (
 	"os"
 
 	"go800mon/a800mon"
+	_ "go800mon/a800mon/monitor"
 )
 
 func main() {

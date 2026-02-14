@@ -8,9 +8,13 @@ from .atascii import atascii_to_screen, text_to_atascii
 from .breakpoints import format_bp_condition, parse_bp_clauses
 from .datastructures import CpuState
 from .disasm import disasm_6502, disasm_6502_one
-from .displaylist import (DLPTRS_ADDR, DMACTL_ADDR, DMACTL_HW_ADDR,
-                          DisplayListMemoryMapper, decode_displaylist)
-from .main import run as run_monitor
+from .displaylist import (
+    DLPTRS_ADDR,
+    DMACTL_ADDR,
+    DMACTL_HW_ADDR,
+    DisplayListMemoryMapper,
+    decode_displaylist,
+)
 from .memory import (
     dump_memory_human,
     dump_memory_human_rows,
@@ -22,6 +26,7 @@ from .memory import (
     parse_hex_values,
     parse_positive_int,
 )
+from .monitor.main import run as run_monitor
 from .rpc import Command, CommandError, RpcClient, RpcException
 from .socket import SocketTransport
 from .trainer import Trainer
@@ -87,8 +92,7 @@ def _parse_args(argv):
     )
     subparsers = parser.add_subparsers(dest="cmd", metavar="cmd")
 
-    monitor = subparsers.add_parser(
-        "monitor", help="Run the curses monitor UI.")
+    monitor = subparsers.add_parser("monitor", help="Run the curses monitor UI.")
     monitor.set_defaults(func=_cmd_monitor)
 
     run = subparsers.add_parser("run", help="Run a file via RPC.")
@@ -128,23 +132,19 @@ def _parse_args(argv):
     cont = subparsers.add_parser("continue", help="Continue emulation.")
     cont.set_defaults(func=_cmd_continue)
 
-    coldstart = subparsers.add_parser(
-        "coldstart", help="Cold start emulation.")
+    coldstart = subparsers.add_parser("coldstart", help="Cold start emulation.")
     coldstart.set_defaults(func=_cmd_coldstart)
 
-    warmstart = subparsers.add_parser(
-        "warmstart", help="Warm start emulation.")
+    warmstart = subparsers.add_parser("warmstart", help="Warm start emulation.")
     warmstart.set_defaults(func=_cmd_warmstart)
 
-    removecartrige = subparsers.add_parser(
-        "removecartrige", help="Remove cartridge.")
+    removecartrige = subparsers.add_parser("removecartrige", help="Remove cartridge.")
     removecartrige.set_defaults(func=_cmd_removecartrige)
 
     removetape = subparsers.add_parser("removetape", help="Remove cassette.")
     removetape.set_defaults(func=_cmd_removetape)
 
-    removedisks = subparsers.add_parser(
-        "removedisks", help="Remove all disks.")
+    removedisks = subparsers.add_parser("removedisks", help="Remove all disks.")
     removedisks.set_defaults(func=_cmd_removedisks)
 
     dlist = subparsers.add_parser("dlist", help="Dump display list.")
@@ -180,8 +180,7 @@ def _parse_args(argv):
     stack = subparsers.add_parser("stack", help="Show 6502 stack bytes.")
     stack.set_defaults(func=_cmd_stack)
 
-    history = subparsers.add_parser(
-        "history", help="Show CPU execution history.")
+    history = subparsers.add_parser("history", help="Show CPU execution history.")
     history.add_argument(
         "-n",
         "--count",
@@ -225,7 +224,7 @@ def _parse_args(argv):
 
     bp_add = bp_sub.add_parser(
         "add",
-        help='Add one breakpoint clause (AND). Example: bp add pc==0x2000 a==0 mem[0xD20A]==0x0F',
+        help="Add one breakpoint clause (AND). Example: bp add pc==0x2000 a==0 mem[0xD20A]==0x0F",
     )
     bp_add.add_argument(
         "conditions",
@@ -234,7 +233,9 @@ def _parse_args(argv):
     )
     bp_add.set_defaults(func=_cmd_bp_add)
 
-    bp_del = bp_sub.add_parser("del", help="Delete breakpoint clause by index (1-based).")
+    bp_del = bp_sub.add_parser(
+        "del", help="Delete breakpoint clause by index (1-based)."
+    )
     bp_del.add_argument("index", type=int, help="Clause index (1-based).")
     bp_del.set_defaults(func=_cmd_bp_del)
 
@@ -386,9 +387,7 @@ def _parse_args(argv):
     disasm.add_argument("length", help="Length (hex: 0xNNNN, $NNNN, NNNN).")
     disasm.set_defaults(func=_cmd_disasm)
 
-    screen = subparsers.add_parser(
-        "screen", help="Dump screen memory segments."
-    )
+    screen = subparsers.add_parser("screen", help="Dump screen memory segments.")
     screen.add_argument(
         "segment",
         nargs="?",
@@ -728,7 +727,9 @@ def _cmd_bp_list(args):
         sys.stdout.write("No breakpoint clauses.\n")
         return 0
     for idx, clause in enumerate(bp.clauses, start=1):
-        cond_text = " AND ".join(format_bp_condition(cond) for cond in clause.conditions)
+        cond_text = " AND ".join(
+            format_bp_condition(cond) for cond in clause.conditions
+        )
         sys.stdout.write(f"#{idx:02d} {cond_text}\n")
     return 0
 
@@ -942,10 +943,7 @@ def _cmd_search(args):
     end = parse_hex(args.end) & 0xFFFF
     if len(pattern) == 0 or len(pattern) > 0xFF:
         raise SystemExit("Pattern length must be in range 1..255.")
-    payload = (
-        struct.pack("<BHHB", mode_id, start, end, len(pattern))
-        + pattern
-    )
+    payload = struct.pack("<BHHB", mode_id, start, end, len(pattern)) + pattern
     data = async_to_sync(_rpc(args.socket).call(Command.SEARCH, payload))
     if len(data) < 6:
         raise SystemExit("SEARCH payload too short")
@@ -1006,7 +1004,7 @@ def _cmd_readmem(args):
 
 def _cmd_writemem(args):
     addr = parse_hex(args.addr)
-    has_bytes = bool(args.bytes)
+    has_bytes = args.bytes
     has_hex = args.hex_data is not None
     has_text = args.text_data is not None
     if int(has_bytes) + int(has_hex) + int(has_text) != 1:
@@ -1084,6 +1082,7 @@ def _cmd_screen(args):
     mapper = DisplayListMemoryMapper(dlist, dmactl)
     if args.segment is None:
         if args.columns is None and not args.raw and not args.json:
+
             async def read_all_rows():
                 rpc = _rpc(args.socket)
                 out = []
@@ -1107,6 +1106,7 @@ def _cmd_screen(args):
                     + "\n"
                 )
                 return 0
+
         async def read_all_segments():
             rpc = _rpc(args.socket)
             out = []
@@ -1226,7 +1226,7 @@ def _cli_color_enabled():
         return True
     if color_mode == "never":
         return False
-    return bool(term and term != "dumb")
+    return term not in (None, "", "dumb")
 
 
 def _format_on_off_badge(enabled: bool) -> str:

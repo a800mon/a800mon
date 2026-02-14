@@ -1,16 +1,12 @@
 import curses
 
-from .actions import Actions
-from .app import VisualRpcComponent
+from ..actions import Actions
+from ..app import VisualRpcComponent
+from ..disasm import FLOW_MNEMONICS, assemble_6502_one, disasm_6502_decoded
+from ..memory import parse_hex_u16
+from ..rpc import RpcException
+from ..ui import Color, GridWidget
 from .appstate import state
-from .disasm import (
-    FLOW_MNEMONICS,
-    assemble_6502_one,
-    disasm_6502_decoded,
-)
-from .memory import parse_hex_u16
-from .rpc import RpcException
-from .ui import Color, GridWidget
 
 FOLLOW_TAG_ID = "follow"
 
@@ -192,8 +188,7 @@ class DisassemblyViewer(VisualRpcComponent):
 
     async def _find_end_start(self):
         target_row = max(0, self.window._ih - 1)
-        lookbacks = (64, 128, 256, 512, 1024, 2048,
-                     4096, 8192, 16384, 32768, 65535)
+        lookbacks = (64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65535)
         for back in lookbacks:
             low = 0xFFFF - back
             if low < 0:
@@ -229,8 +224,7 @@ class DisassemblyViewer(VisualRpcComponent):
     async def _find_prev_start(self, addr: int):
         if addr <= 0:
             return 0
-        lookbacks = (32, 64, 128, 256, 512, 1024,
-                     2048, 4096, 8192, 16384, 32768)
+        lookbacks = (32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768)
         for back in lookbacks:
             low = addr - back
             if low < 0:

@@ -1,7 +1,7 @@
 import enum
 
 from .app import Component, StopLoop
-from .appstate import AppMode, state, store
+from .monitor.appstate import AppMode, state, store
 from .rpc import Command, RpcException
 
 
@@ -85,17 +85,13 @@ class ActionDispatcher(Component):
             return
         if action == Actions.SYNC_MODE:
             if state.active_mode in (AppMode.DEBUG, AppMode.NORMAL):
-                store.set_active_mode(
-                    AppMode.DEBUG if state.paused else AppMode.NORMAL
-                )
+                store.set_active_mode(AppMode.DEBUG if state.paused else AppMode.NORMAL)
             return
         if action == Actions.ENTER_SHUTDOWN:
             store.set_active_mode(AppMode.SHUTDOWN)
             return
         if action == Actions.EXIT_SHUTDOWN:
-            store.set_active_mode(
-                AppMode.DEBUG if state.paused else AppMode.NORMAL
-            )
+            store.set_active_mode(AppMode.DEBUG if state.paused else AppMode.NORMAL)
             return
         if action == Actions.COLDSTART:
             self._enqueue_rpc(Command.COLDSTART)
@@ -113,13 +109,13 @@ class ActionDispatcher(Component):
             store.set_ui_frozen(not state.ui_frozen)
             return
         if action == Actions.SET_DISASSEMBLY:
-            store.set_disassembly_enabled(bool(value))
+            store.set_disassembly_enabled(value)
             return
         if action == Actions.SET_DISASSEMBLY_ADDR:
             store.set_disassembly_addr(int(value))
             return
         if action == Actions.SET_BREAKPOINTS_SUPPORTED:
-            store.set_breakpoints_supported(bool(value))
+            store.set_breakpoints_supported(value)
             return
         if action == Actions.SET_STATUS:
             status = value

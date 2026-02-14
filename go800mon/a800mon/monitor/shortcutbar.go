@@ -1,6 +1,10 @@
-package a800mon
+package monitor
 
-import "context"
+import (
+	"context"
+
+	. "go800mon/a800mon"
+)
 
 type ShortcutBar struct {
 	BaseWindowComponent
@@ -28,7 +32,7 @@ func (s *ShortcutBar) Render(_force bool) {
 	st := State()
 	w := s.Window()
 	w.Cursor(0, 0)
-	layer := s.shortcuts.Get(st.ActiveMode)
+	layer := s.shortcuts.Get(int(st.ActiveMode))
 	if layer != nil {
 		layerText := padRight(layer.Name, 16)
 		w.Print(layerText, layer.Color.Attr(), false)

@@ -63,6 +63,7 @@ import (
 type Screen struct {
 	scr               *C.WINDOW
 	shortcuts         *ShortcutManager
+	shortcutMode      func() int
 	windows           []*Window
 	windowInput       map[*Window]func(int) bool
 	focusOrder        []*Window
@@ -175,9 +176,22 @@ func NewScreen(layoutInitializer func(*Screen), shortcuts *ShortcutManager) *Scr
 	return &Screen{
 		layoutInitializer: layoutInitializer,
 		shortcuts:         shortcuts,
+		shortcutMode:      func() int { return 0 },
 		focusIndex:        -1,
 		windowInput:       map[*Window]func(int) bool{},
 	}
+}
+
+func (s *Screen) SetLayoutInitializer(layoutInitializer func(*Screen)) {
+	s.layoutInitializer = layoutInitializer
+}
+
+func (s *Screen) SetShortcutModeProvider(mode func() int) {
+	if mode == nil {
+		s.shortcutMode = func() int { return 0 }
+		return
+	}
+	s.shortcutMode = mode
 }
 
 func (s *Screen) Initialize() {
@@ -340,17 +354,25 @@ func (s *Screen) HasInputFocus() bool {
 }
 
 func (s *Screen) HandleInput(ch int) bool {
-	if s.inputHandler == nil {
-		if s.focused == nil {
-			return false
-		}
-		handler := s.windowInput[s.focused]
-		if handler == nil {
-			return false
-		}
-		return handler(ch)
+	if s.inputHandler != nil {
+		return s.inputHandler(ch)
 	}
-	return s.inputHandler(ch)
+	if s.focused != nil {
+		handler := s.windowInput[s.focused]
+		if handler != nil && handler(ch) {
+			return true
+		}
+	}
+	if s.shortcuts != nil {
+		mode := 0
+		if s.shortcutMode != nil {
+			mode = s.shortcutMode()
+		}
+		if s.shortcuts.HandleInput(mode, ch) {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Screen) SetInputTimeoutMS(timeoutMS int) {
@@ -505,6 +527,9 @@ func (w *Window) Width() int  { return w.iw }
 func (w *Window) Height() int { return w.ih }
 func (w *Window) X() int      { return w.x }
 func (w *Window) Y() int      { return w.y }
+func (w *Window) OuterWidth() int {
+	return w.w
+}
 
 func (w *Window) Reshape(x, y, width, height int) {
 	w.x = x

@@ -1,59 +1,53 @@
 import asyncio
 import curses
 
-from . import debug
-from .actions import ActionDispatcher, Actions, ShortcutsComponent
-from .app import App, Component
+from .. import debug
+from ..actions import ActionDispatcher, Actions, ShortcutsComponent
+from ..app import App, Component
+from ..emulator import CAP_MONITOR_BREAKPOINTS
+from ..rpc import RpcClient, RpcException
+from ..shortcuts import Shortcut, ShortcutLayer, ShortcutManager
+from ..socket import SocketTransport
+from ..ui import Color, Screen, Window
 from .appstate import AppMode, state
 from .breakpoints import BreakpointsViewer
 from .cpustate import CpuStateViewer
 from .disassembly import DisassemblyViewer
 from .displaylist import DisplayListViewer
-from .emulator import CAP_MONITOR_BREAKPOINTS
 from .history import HistoryViewer
-from .rpc import RpcClient, RpcException
 from .screenbuffer import ScreenBufferInspector
-from .watchers import WatchersViewer
 from .shortcutbar import ShortcutBar
-from .shortcuts import Shortcut, ShortcutLayer, ShortcutManager
-from .socket import SocketTransport
 from .statusupdater import StatusUpdater
 from .topbar import TopBar
-from .ui import Color, Screen, Window
+from .watchers import WatchersViewer
 
 
 class AppModeUpdater(Component):
-    def __init__(self):
+    def __init__(self, app, screen, breakpoints_window):
         super().__init__()
+        self._app = app
+        self._screen = screen
+        self._breakpoints_window = breakpoints_window
         self._last_paused = None
+        self._last_breakpoints_visible = breakpoints_window.visible
 
     async def update(self):
+        changed = False
         if self._last_paused is None:
             self._last_paused = state.paused
             self.app.dispatch_action(Actions.SYNC_MODE)
-            return True
-        if state.paused != self._last_paused:
+            changed = True
+        elif state.paused != self._last_paused:
             self._last_paused = state.paused
             self.app.dispatch_action(Actions.SYNC_MODE)
-            return True
-        return False
-
-
-class BreakpointsWindowUpdater(Component):
-    def __init__(self, app, screen, window):
-        self._app = app
-        self._screen = screen
-        self._window = window
-        self._last_visible = bool(window.visible)
-
-    async def update(self):
-        visible = bool(state.breakpoints_supported)
-        if visible == self._last_visible:
-            return False
-        self._last_visible = visible
-        if not visible and self._screen.focused is self._window:
+            changed = True
+        visible = state.breakpoints_supported
+        if visible == self._last_breakpoints_visible:
+            return changed
+        self._last_breakpoints_visible = visible
+        if not visible and self._screen.focused is self._breakpoints_window:
             self._screen.focus(None)
-        self._window.visible = visible
+        self._breakpoints_window.visible = visible
         self._app.rebuild_screen()
         return True
 
@@ -98,7 +92,6 @@ async def main(scr, socket_path):
         paused_interval=0.2,
         running_interval=0.05,
     )
-    appmode_updater = AppModeUpdater()
     shortcuts = ShortcutManager()
     shortcutbar = ShortcutBar(bottom, shortcuts)
     wdisasm.visible = state.disassembly_enabled
@@ -217,20 +210,19 @@ async def main(scr, socket_path):
 
     screen = Screen(scr, shortcuts, layout_initializer=init_screen)
     dispatcher.set_input_focus_handler(screen.set_input_focus)
-    screen.set_focus_order(
-        [wdlist, wwatch, wscreen, wdisasm, whistory, wbreakpoints]
-    )
+    screen.set_focus_order([wdlist, wwatch, wscreen, wdisasm, whistory, wbreakpoints])
     app = App(
         screen=screen,
         dispatcher=dispatcher,
         status_updater=status_updater,
         input_timeout_ms=200,
     )
-    breakpoints_window_updater = BreakpointsWindowUpdater(
+    appmode_updater = AppModeUpdater(
         app=app,
         screen=screen,
-        window=wbreakpoints,
+        breakpoints_window=wbreakpoints,
     )
+
     def build_shortcuts():
         def action(key, label, action):
             return Shortcut(key, label, lambda: app.dispatch_action(action))
@@ -323,9 +315,7 @@ async def main(scr, socket_path):
                 visible_in_global_bar=False,
             )
         )
-        shortcuts.add_global(
-            action(curses.KEY_F0 + 9, "Freeze", Actions.TOGGLE_FREEZE)
-        )
+        shortcuts.add_global(action(curses.KEY_F0 + 9, "Freeze", Actions.TOGGLE_FREEZE))
         shortcuts.add_global(action("q", "Quit", Actions.QUIT))
 
     shortcuts_component = ShortcutsComponent(screen.shortcuts)
@@ -337,7 +327,6 @@ async def main(scr, socket_path):
     app.add_component(shortcuts_component)
     app.add_component(topbar)
     app.add_component(appmode_updater)
-    app.add_component(breakpoints_window_updater)
     app.add_component(shortcutbar)
     app.add_component(display_list)
     app.add_component(screen_inspector)
