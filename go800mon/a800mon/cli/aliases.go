@@ -1,6 +1,7 @@
 package cli
 
 import mon "go800mon/a800mon"
+import atari "go800mon/a800mon/atari"
 
 type RpcClient = mon.RpcClient
 type Command = mon.Command
@@ -28,9 +29,9 @@ const (
 	CmdBBRK            = mon.CmdBBRK
 	CmdBLine           = mon.CmdBLine
 
-	DMACTLAddr   = mon.DMACTLAddr
-	DMACTLHWAddr = mon.DMACTLHWAddr
-	DLPTRSAddr   = mon.DLPTRSAddr
+	DMACTLAddr   = atari.DMACTLAddr
+	DMACTLHWAddr = atari.DMACTLHWAddr
+	DLPTRSAddr   = atari.DLPTRSAddr
 )
 
 var (
@@ -40,9 +41,9 @@ var (
 	NewTrainer         = mon.NewTrainer
 	ParseBPClauses     = mon.ParseBPClauses
 	FormatBPCondition  = mon.FormatBPCondition
-	EncodeATASCIIText  = mon.EncodeATASCIIText
-	ATASCIIToScreen    = mon.ATASCIIToScreen
-	DecodeDisplayList  = mon.DecodeDisplayList
+	EncodeATASCIIText  = atari.EncodeATASCIIText
+	ATASCIIToScreen    = atari.ATASCIIToScreen
+	DecodeDisplayList  = atari.DecodeDisplayList
 )
 
 func formatCPU(cpu mon.CPUState) string {

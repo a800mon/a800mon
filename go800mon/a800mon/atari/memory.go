@@ -1,4 +1,4 @@
-package a800mon
+package atari
 
 import imemory "go800mon/internal/memory"
 

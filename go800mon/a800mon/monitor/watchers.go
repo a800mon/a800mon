@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	. "go800mon/a800mon"
+	atari "go800mon/a800mon/atari"
 )
 
 type WatchersViewer struct {
@@ -62,7 +63,7 @@ func (v *WatchersViewer) Update(ctx context.Context) (bool, error) {
 			Addr:      row.Addr,
 			Value:     value,
 			NextValue: nextValue,
-			Comment:   LookupSymbol(row.Addr),
+			Comment:   atari.LookupSymbol(row.Addr),
 		})
 	}
 
@@ -84,7 +85,7 @@ func (v *WatchersViewer) Update(ctx context.Context) (bool, error) {
 			Addr:      v.pending.Addr,
 			Value:     value,
 			NextValue: nextValue,
-			Comment:   LookupSymbol(v.pending.Addr),
+			Comment:   atari.LookupSymbol(v.pending.Addr),
 		}
 		pending = &p
 	}
@@ -210,7 +211,7 @@ func (v *WatchersViewer) commitPending() {
 			return
 		}
 	}
-	v.rows = append([]WatcherRow{{Addr: addr, Value: 0, NextValue: 0, Comment: LookupSymbol(addr)}}, v.rows...)
+	v.rows = append([]WatcherRow{{Addr: addr, Value: 0, NextValue: 0, Comment: atari.LookupSymbol(addr)}}, v.rows...)
 	v.grid.SetSelectedRow(nil)
 }
 
@@ -258,12 +259,12 @@ func (v *WatchersViewer) clearPending() {
 }
 
 func (v *WatchersViewer) onSearchChange(text string) {
-	addr, ok := FindSymbolOrAddress(text)
+	addr, ok := atari.FindSymbolOrAddress(text)
 	if !ok {
 		v.clearPending()
 		return
 	}
-	v.pending = &WatcherRow{Addr: addr, Value: 0, NextValue: 0, Comment: LookupSymbol(addr)}
+	v.pending = &WatcherRow{Addr: addr, Value: 0, NextValue: 0, Comment: atari.LookupSymbol(addr)}
 }
 
 func buildWatchersSnapshot(rows []WatcherRow, pending *WatcherRow, selected *int, inputActive bool, inputText string) string {

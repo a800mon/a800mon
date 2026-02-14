@@ -1,9 +1,9 @@
 import struct
 import sys
 
-from ...atascii import atascii_to_screen, text_to_atascii
-from ...disasm import disasm_6502
-from ...memory import parse_hex, parse_hex_payload, parse_hex_values
+from ...atari.atascii import atascii_to_screen, text_to_atascii
+from ...atari.disasm import disasm_6502
+from ...atari.memory import parse_hex, parse_hex_payload, parse_hex_values
 from ...rpc import Command
 from ..common import SEARCH_MODE_BYTES, async_to_sync, dump_memory_output, rpc_client
 

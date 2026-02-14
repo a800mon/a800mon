@@ -4,7 +4,7 @@ import time
 from ..actions import Actions
 from ..app import EventType
 from ..datastructures import CpuState
-from ..disasm import disasm_6502_one
+from ..atari.disasm import disasm_6502_one
 from ..emulator import CAP_MONITOR_BREAKPOINTS
 from ..rpc import RpcException
 from .appstate import state

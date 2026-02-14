@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	. "go800mon/a800mon"
+	atari "go800mon/a800mon/atari"
 )
 
 type DisplayListViewer struct {
@@ -26,7 +27,7 @@ func NewDisplayListViewer(rpc *RpcClient, window *Window) *DisplayListViewer {
 }
 
 func (v *DisplayListViewer) Update(ctx context.Context) (bool, error) {
-	startAddr, err := v.rpc.ReadVector(ctx, DLPTRSAddr)
+	startAddr, err := v.rpc.ReadVector(ctx, atari.DLPTRSAddr)
 	if err != nil {
 		return false, nil
 	}
@@ -34,16 +35,16 @@ func (v *DisplayListViewer) Update(ctx context.Context) (bool, error) {
 	if err != nil {
 		return false, nil
 	}
-	dmactl, err := v.rpc.ReadByte(ctx, DMACTLAddr)
+	dmactl, err := v.rpc.ReadByte(ctx, atari.DMACTLAddr)
 	if err != nil {
 		return false, nil
 	}
 	if (dmactl & 0x03) == 0 {
-		if hw, err := v.rpc.ReadByte(ctx, DMACTLHWAddr); err == nil {
+		if hw, err := v.rpc.ReadByte(ctx, atari.DMACTLHWAddr); err == nil {
 			dmactl = hw
 		}
 	}
-	dlist := DecodeDisplayList(startAddr, dump)
+	dlist := atari.DecodeDisplayList(startAddr, dump)
 	if app := v.App(); app != nil {
 		app.DispatchAction(
 			ActionSetDList,

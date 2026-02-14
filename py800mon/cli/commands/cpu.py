@@ -1,6 +1,6 @@
 import struct
 
-from ...memory import parse_hex
+from ...atari.memory import parse_hex
 from ...rpc import Command
 from ..common import (
     SET_REG_TARGETS,

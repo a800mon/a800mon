@@ -1,6 +1,6 @@
 import sys
 
-from ...memory import parse_hex, parse_hex_u8, parse_positive_int
+from ...atari.memory import parse_hex, parse_hex_u8, parse_positive_int
 from ...trainer import Trainer
 from ..common import async_to_sync, rpc_client
 

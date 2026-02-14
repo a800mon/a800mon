@@ -1,6 +1,6 @@
 from ..actions import Actions
 from ..app import VisualRpcComponent
-from ..displaylist import DLPTRS_ADDR, DMACTL_ADDR, DMACTL_HW_ADDR, decode_displaylist
+from ..atari.displaylist import DLPTRS_ADDR, DMACTL_ADDR, DMACTL_HW_ADDR, decode_displaylist
 from ..rpc import RpcException
 from ..ui import Color, GridWidget
 from .appstate import state

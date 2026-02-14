@@ -1,7 +1,7 @@
 import curses
 
 from ..app import VisualRpcComponent
-from ..disasm import FLOW_MNEMONICS, DecodedInstruction, disasm_6502_one_decoded
+from ..atari.disasm import FLOW_MNEMONICS, DecodedInstruction, disasm_6502_one_decoded
 from ..rpc import RpcException
 from ..ui import Color, GridWidget
 from .appstate import state

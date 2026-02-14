@@ -7,9 +7,6 @@ all: build
 
 build: build-py build-go
 
-build-py:
-	pip install . --prefix="$$PWD" --no-user
-
 build-go:
 	go build -C go800mon -a -o ../$(GO_BIN) ./cmd/go800mon
 

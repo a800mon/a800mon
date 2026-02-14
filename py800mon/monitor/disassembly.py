@@ -2,8 +2,8 @@ import curses
 
 from ..actions import Actions
 from ..app import VisualRpcComponent
-from ..disasm import FLOW_MNEMONICS, assemble_6502_one, disasm_6502_decoded
-from ..memory import parse_hex_u16
+from ..atari.disasm import FLOW_MNEMONICS, assemble_6502_one, disasm_6502_decoded
+from ..atari.memory import parse_hex_u16
 from ..rpc import RpcException
 from ..ui import Color, GridWidget
 from .appstate import state

@@ -246,7 +246,7 @@ class DisplayList:
         yield (count, run)
 
     def screen_segments(self, dmactl: int):
-        from .displaylist import DisplayListMemoryMapper
+        from .atari.displaylist import DisplayListMemoryMapper
 
         rows = DisplayListMemoryMapper(self, dmactl).row_ranges_with_modes()
         segs = []

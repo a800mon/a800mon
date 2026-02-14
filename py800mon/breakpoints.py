@@ -1,7 +1,7 @@
 import re
 
 from .datastructures import BreakpointConditionEntry
-from .memory import parse_hex
+from .atari.memory import parse_hex
 
 BP_CONDITION_TYPES = {
     "pc": 1,

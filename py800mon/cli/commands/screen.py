@@ -1,13 +1,13 @@
 import sys
 
-from ...displaylist import (
+from ...atari.displaylist import (
     DLPTRS_ADDR,
     DMACTL_ADDR,
     DMACTL_HW_ADDR,
     DisplayListMemoryMapper,
     decode_displaylist,
 )
-from ...memory import dump_memory_human_rows
+from ...atari.memory import dump_memory_human_rows
 from ..common import async_to_sync, dump_memory_output, fmt_bytes, rpc_client
 
 
@@ -73,7 +73,7 @@ async def _read_dlist_context(socket):
 
 
 def cmd_dump_dlist(args):
-    from ...memory import parse_hex
+    from ...atari.memory import parse_hex
 
     start_from_arg = parse_hex(args.address) if args.address is not None else None
 

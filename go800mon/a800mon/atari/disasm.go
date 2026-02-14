@@ -1,4 +1,4 @@
-package a800mon
+package atari
 
 import idisasm "go800mon/internal/disasm"
 

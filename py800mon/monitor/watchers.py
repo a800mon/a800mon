@@ -3,7 +3,7 @@ import curses
 from ..actions import Actions
 from ..app import VisualRpcComponent
 from ..datastructures import WatcherEntry
-from ..memorymap import find_symbol_or_addr, lookup_symbol
+from ..atari.memorymap import find_symbol_or_addr, lookup_symbol
 from ..rpc import RpcException
 from ..ui import Color, GridWidget
 from ..ui import InputWidget

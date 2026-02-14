@@ -3,8 +3,8 @@ import struct
 import sys
 import time
 
-from ...disasm import disasm_6502_one
-from ...memory import parse_hex
+from ...atari.disasm import disasm_6502_one
+from ...atari.memory import parse_hex
 from ...rpc import Command, RpcException
 from ..common import (
     async_to_sync,

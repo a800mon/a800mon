@@ -3,7 +3,7 @@ import os
 import sys
 
 from ..datastructures import CpuState
-from ..memory import dump_memory_human, dump_memory_json, dump_memory_raw
+from ..atari.memory import dump_memory_human, dump_memory_json, dump_memory_raw
 from ..rpc import CommandError, RpcClient
 from ..socket import SocketTransport
 

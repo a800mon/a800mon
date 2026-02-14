@@ -2,7 +2,7 @@ import struct
 import sys
 
 from ...breakpoints import format_bp_condition, parse_bp_clauses
-from ...memory import parse_hex
+from ...atari.memory import parse_hex
 from ...rpc import Command
 from ..common import async_to_sync, format_on_off_badge, rpc_client
 

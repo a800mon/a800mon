@@ -1,6 +1,6 @@
 import curses
 
-from ..memory import parse_hex_u16
+from ..atari.memory import parse_hex_u16
 from .color import Color
 from .inputwidget import InputWidget
 

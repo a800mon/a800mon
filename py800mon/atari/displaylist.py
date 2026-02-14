@@ -1,4 +1,4 @@
-from .datastructures import DisplayList, DisplayListEntry
+from ..datastructures import DisplayList, DisplayListEntry
 
 DMACTL_ADDR = 0x022F
 DMACTL_HW_ADDR = 0xD400
