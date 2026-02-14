@@ -93,7 +93,7 @@ class StatusUpdater:
 
     def _sync_rpc_error(self):
         error = self._rpc.last_error
-        text = None if error is None else str(error)
+        text = str(error) if error else None
         if state.last_rpc_error != text:
             self._dispatcher.dispatch(Actions.SET_LAST_RPC_ERROR, text)
 

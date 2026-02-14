@@ -4,7 +4,7 @@ import curses
 from . import debug
 from .actions import ActionDispatcher, Actions, ShortcutsComponent
 from .app import App, Component
-from .appstate import AppMode, shortcuts, state
+from .appstate import AppMode, state
 from .breakpoints import BreakpointsViewer
 from .cpustate import CpuStateViewer
 from .disassembly import DisassemblyViewer
@@ -15,7 +15,7 @@ from .rpc import RpcClient, RpcException
 from .screenbuffer import ScreenBufferInspector
 from .watchers import WatchersViewer
 from .shortcutbar import ShortcutBar
-from .shortcuts import Shortcut, ShortcutLayer
+from .shortcuts import Shortcut, ShortcutLayer, ShortcutManager
 from .socket import SocketTransport
 from .statusupdater import StatusUpdater
 from .topbar import TopBar
@@ -99,7 +99,8 @@ async def main(scr, socket_path):
         running_interval=0.05,
     )
     appmode_updater = AppModeUpdater()
-    shortcutbar = ShortcutBar(bottom)
+    shortcuts = ShortcutManager()
+    shortcutbar = ShortcutBar(bottom, shortcuts)
     wdisasm.visible = state.disassembly_enabled
     wbreakpoints.visible = state.breakpoints_supported
 
@@ -214,7 +215,7 @@ async def main(scr, socket_path):
         top.reshape(x=0, y=0, w=w, h=1)
         bottom.reshape(x=0, y=h - 1, w=w, h=1)
 
-    screen = Screen(scr, layout_initializer=init_screen)
+    screen = Screen(scr, shortcuts, layout_initializer=init_screen)
     dispatcher.set_input_focus_handler(screen.set_input_focus)
     screen.set_focus_order(
         [wdlist, wwatch, wscreen, wdisasm, whistory, wbreakpoints]
@@ -294,53 +295,18 @@ async def main(scr, socket_path):
                 app.dispatch_action(Actions.SET_DISASSEMBLY, True)
                 wdisasm.visible = True
                 app.rebuild_screen()
-                screen.focus(wdisasm)
-                return
-            if screen.focused is wdisasm:
-                screen.focus(None)
-            else:
-                screen.focus(wdisasm)
+            screen.focus(wdisasm)
 
-        def focus_watchers():
-            if screen.focused is wwatch:
-                screen.focus(None)
-            else:
-                screen.focus(wwatch)
-
-        def focus_breakpoints():
-            if not wbreakpoints.visible:
-                return
-            if screen.focused is wbreakpoints:
-                screen.focus(None)
-            else:
-                screen.focus(wbreakpoints)
-
-        def focus_screen_buffer():
-            if screen.focused is wscreen:
-                screen.focus(None)
-            else:
-                screen.focus(wscreen)
-
-        def add_window_hotkey(window, key, label, callback):
-            shortcut = Shortcut(
-                key,
-                label,
-                callback,
-                visible_in_global_bar=False,
-            )
-            shortcuts.add_global(shortcut)
-            window.set_hotkey_label(shortcut.key_as_text())
-
-        add_window_hotkey(wdlist, "l", "DisplayList", lambda: screen.focus(
-            None if screen.focused is wdlist else wdlist
-        ))
-        add_window_hotkey(whistory, "h", "History", lambda: screen.focus(
-            None if screen.focused is whistory else whistory
-        ))
-        add_window_hotkey(wscreen, "s", "Screen Buffer", focus_screen_buffer)
-        add_window_hotkey(wwatch, "w", "Watchers", focus_watchers)
-        add_window_hotkey(wbreakpoints, "b", "Breakpoints", focus_breakpoints)
-        add_window_hotkey(wdisasm, "d", "Disassembly", toggle_disassembly)
+        wdlist.add_hotkey("l", "DisplayList", lambda: screen.focus(wdlist))
+        whistory.add_hotkey("h", "History", lambda: screen.focus(whistory))
+        wscreen.add_hotkey("s", "Screen Buffer", lambda: screen.focus(wscreen))
+        wwatch.add_hotkey("w", "Watchers", lambda: screen.focus(wwatch))
+        wbreakpoints.add_hotkey(
+            "b",
+            "Breakpoints",
+            lambda: screen.focus(wbreakpoints),
+        )
+        wdisasm.add_hotkey("d", "Disassembly", toggle_disassembly)
         shortcuts.add_global(
             Shortcut(
                 9,
@@ -362,7 +328,7 @@ async def main(scr, socket_path):
         )
         shortcuts.add_global(action("q", "Quit", Actions.QUIT))
 
-    shortcuts_component = ShortcutsComponent(shortcuts)
+    shortcuts_component = ShortcutsComponent(screen.shortcuts)
     app.add_component(dispatcher)
     app.add_component(cpu)
     app.add_component(disassembly_view)

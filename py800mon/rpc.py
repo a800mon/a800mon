@@ -115,7 +115,7 @@ class RpcClient:
         self._call_lock = None
 
     def _lock(self):
-        if self._call_lock is None:
+        if not self._call_lock:
             self._call_lock = asyncio.Lock()
         return self._call_lock
 

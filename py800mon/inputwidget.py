@@ -85,12 +85,12 @@ class InputWidget(VisualComponent):
         return self._buffer != before
 
     def emit_change(self):
-        if self.on_change is None:
+        if not self.on_change:
             return
         self.on_change(self._to_value())
 
     def emit_enter(self):
-        if self.on_enter is None:
+        if not self.on_enter:
             return
         self.on_enter(self._to_value())
 

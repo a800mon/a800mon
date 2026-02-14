@@ -4,11 +4,15 @@ import "context"
 
 type ShortcutBar struct {
 	BaseWindowComponent
-	lastMode AppMode
+	shortcuts *ShortcutManager
+	lastMode  AppMode
 }
 
-func NewShortcutBar(window *Window) *ShortcutBar {
-	return &ShortcutBar{BaseWindowComponent: NewBaseWindowComponent(window)}
+func NewShortcutBar(window *Window, shortcuts *ShortcutManager) *ShortcutBar {
+	return &ShortcutBar{
+		BaseWindowComponent: NewBaseWindowComponent(window),
+		shortcuts:           shortcuts,
+	}
 }
 
 func (s *ShortcutBar) Update(_ctx context.Context) (bool, error) {
@@ -24,7 +28,7 @@ func (s *ShortcutBar) Render(_force bool) {
 	st := State()
 	w := s.Window()
 	w.Cursor(0, 0)
-	layer := shortcuts.Get(st.ActiveMode)
+	layer := s.shortcuts.Get(st.ActiveMode)
 	if layer != nil {
 		layerText := padRight(layer.Name, 16)
 		w.Print(layerText, layer.Color.Attr(), false)
@@ -33,7 +37,7 @@ func (s *ShortcutBar) Render(_force bool) {
 		}
 		w.FillToEOL(' ', ColorText.Attr())
 	}
-	globals := shortcuts.Globals()
+	globals := s.shortcuts.Globals()
 	globalW := 0
 	for _, sh := range globals {
 		globalW += len([]rune(sh.KeyAsText())) + 3 + 16

@@ -43,6 +43,7 @@ This repository contains `a800mon`, a curses-based monitor UI and CLI for Atari8
 - Global shortcuts are registered in `ShortcutManager` and should not be rendered in the shortcut bar unless explicitly required.
 
 ## Code Style and Conventions
+- **Coding standards compliance**: follow `CODING_STANDARS.md` (project CODING_STANDARDS) for every change.
 - UI/UX quality is important even for a developer tool: preserve readability, visual stability, and interaction ergonomics.
 - Prefer clean code and maintainable design choices (clear naming, small focused functions, explicit dependencies, and minimal coupling) that reduce long-term maintenance cost.
 - Keep logic explicit. Avoid reflection, magic `getattr`/`setattr`, and implicit type coercion.

@@ -134,7 +134,7 @@ class HistoryViewer(VisualRpcComponent):
         if self._can_disasm:
             try:
                 ins = disasm_6502_one_decoded(pc, opbytes)
-                if ins is not None:
+                if ins:
                     return ins
             except RuntimeError:
                 self._can_disasm = False

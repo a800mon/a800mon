@@ -68,8 +68,6 @@ type ShortcutManager struct {
 	layers       map[AppMode]*ShortcutLayer
 }
 
-var shortcuts = NewShortcutManager()
-
 func NewShortcutManager() *ShortcutManager {
 	return &ShortcutManager{
 		globals:      map[int]Shortcut{},

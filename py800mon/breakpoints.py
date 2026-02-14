@@ -185,7 +185,7 @@ class BreakpointsViewer(VisualRpcComponent):
         if (
             not self._refresh_requested
             and self._last_state_seq == cur_seq
-            and self._last_snapshot is not None
+            and self._last_snapshot
         ):
             return changed
         self._last_state_seq = cur_seq

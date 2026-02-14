@@ -26,7 +26,12 @@ type App struct {
 	inputTimeoutMS int
 }
 
-func NewApp(screen *Screen, dispatcher *ActionDispatcher, updater *StatusUpdater, inputTimeoutMS int) *App {
+func NewApp(
+	screen *Screen,
+	dispatcher *ActionDispatcher,
+	updater *StatusUpdater,
+	inputTimeoutMS int,
+) *App {
 	return &App{
 		screen:         screen,
 		dispatcher:     dispatcher,

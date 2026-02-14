@@ -5,7 +5,6 @@ from .datastructures import (
     CpuState,
     DisplayList,
 )
-from .shortcuts import ShortcutManager
 
 
 class AppMode(enum.Enum):
@@ -119,5 +118,3 @@ class StateProxy:
 
 
 state = StateProxy(_state)
-
-shortcuts = ShortcutManager()

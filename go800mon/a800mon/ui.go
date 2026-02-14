@@ -62,6 +62,7 @@ import (
 
 type Screen struct {
 	scr               *C.WINDOW
+	shortcuts         *ShortcutManager
 	windows           []*Window
 	windowInput       map[*Window]func(int) bool
 	focusOrder        []*Window
@@ -170,9 +171,10 @@ const (
 	ColorInputInvalid
 )
 
-func NewScreen(layoutInitializer func(*Screen)) *Screen {
+func NewScreen(layoutInitializer func(*Screen), shortcuts *ShortcutManager) *Screen {
 	return &Screen{
 		layoutInitializer: layoutInitializer,
+		shortcuts:         shortcuts,
 		focusIndex:        -1,
 		windowInput:       map[*Window]func(int) bool{},
 	}
@@ -224,6 +226,19 @@ func (s *Screen) SetWindowInputHandler(window *Window, handler func(int) bool) {
 	s.windowInput[window] = handler
 }
 
+func (s *Screen) RegisterWindowHotkey(
+	window *Window,
+	key int,
+	label string,
+	callback func(),
+	visibleInGlobalBar bool,
+) {
+	shortcut := NewShortcut(key, label, callback)
+	shortcut.VisibleInGlobalBar = visibleInGlobalBar
+	_ = s.shortcuts.AddGlobal(shortcut)
+	window.setHotkeyLabel(shortcut.KeyAsText())
+}
+
 func (s *Screen) SetFocusOrder(windows ...*Window) {
 	order := make([]*Window, 0, len(windows))
 	for _, window := range windows {
@@ -237,6 +252,9 @@ func (s *Screen) SetFocusOrder(windows ...*Window) {
 }
 
 func (s *Screen) Focus(window *Window) {
+	if window != nil && !window.visible {
+		return
+	}
 	old := s.focused
 	if old == window {
 		return
@@ -508,13 +526,25 @@ func (w *Window) SetTitle(title string) {
 	w.redrawTitle()
 }
 
-func (w *Window) SetHotkeyLabel(label string) {
+func (w *Window) setHotkeyLabel(label string) {
 	text := strings.TrimSpace(label)
 	if w.hotkeyLabel == text {
 		return
 	}
 	w.hotkeyLabel = text
 	w.redrawTitle()
+}
+
+func (w *Window) AddHotkey(
+	key int,
+	label string,
+	callback func(),
+	visibleInGlobalBar bool,
+) {
+	if w.screen == nil {
+		return
+	}
+	w.screen.RegisterWindowHotkey(w, key, label, callback, visibleInGlobalBar)
 }
 
 func (w *Window) AddTag(label, tagID string, active bool) {

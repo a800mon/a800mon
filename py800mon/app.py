@@ -48,7 +48,13 @@ class VisualRpcComponent(VisualComponent):
 
 
 class App:
-    def __init__(self, screen, dispatcher, status_updater=None, input_timeout_ms=200):
+    def __init__(
+        self,
+        screen,
+        dispatcher,
+        status_updater=None,
+        input_timeout_ms=200,
+    ):
         self._screen = screen
         self.screen = screen
         self.dispatcher = dispatcher
@@ -94,7 +100,7 @@ class App:
         self.rebuild_screen()
         input_pump = asyncio.create_task(self._input_event_pump())
         status_pump = None
-        if self._status_updater is not None:
+        if self._status_updater:
             status_pump = asyncio.create_task(
                 self._status_updater.run(self._event_queue)
             )
@@ -117,10 +123,7 @@ class App:
                     )
                     continue
                 had_updates = await self.update_state()
-                if (
-                    self._status_updater is not None
-                    and self.dispatcher.take_rpc_flushed()
-                ):
+                if self._status_updater and self.dispatcher.take_rpc_flushed():
                     self._status_updater.request_refresh()
                 await self.render_components(
                     should_render=had_input or had_updates,
@@ -136,7 +139,7 @@ class App:
         finally:
             input_pump.cancel()
             tasks = [input_pump]
-            if status_pump is not None:
+            if status_pump:
                 status_pump.cancel()
                 tasks.append(status_pump)
             await asyncio.gather(*tasks, return_exceptions=True)

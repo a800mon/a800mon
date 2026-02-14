@@ -879,7 +879,7 @@ def find_symbol_or_addr(query: str) -> int | None:
         q = q[1:].lstrip()
     if not q:
         return None
-    if _HEX_INPUT_RE.fullmatch(q) is None:
+    if not _HEX_INPUT_RE.fullmatch(q):
         return None
     return parse_hex_u16(q)
 

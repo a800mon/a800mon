@@ -57,7 +57,7 @@ def assemble_6502_one(addr: int, statement: str) -> bytes:
 
 def disasm_6502_one_parts(start_addr: int, data: bytes) -> tuple[str, str]:
     ins = disasm_6502_one_decoded(start_addr, data)
-    if ins is None:
+    if not ins:
         return "", ""
     return ins.raw_text, ins.asm_text
 
@@ -118,7 +118,7 @@ _ASSEMBLER = None
 
 def _get_assembler():
     global _ASSEMBLER
-    if _ASSEMBLER is not None:
+    if _ASSEMBLER:
         return _ASSEMBLER
     try:
         from py65.assembler import Assembler

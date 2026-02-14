@@ -127,7 +127,7 @@ class SocketTransport:
         self._reader = None
         self._writer = None
         self._config_caps = ()
-        if writer is None:
+        if not writer:
             return
         writer.close()
         try:
@@ -141,7 +141,7 @@ class SocketTransport:
         await self.connect()
 
     async def _read_config_on_connect(self):
-        if self._writer is None:
+        if not self._writer:
             return
         packet = bytes([SocketCommand.BUILD_FEATURES]) + struct.pack("<H", 0)
         try:
@@ -170,7 +170,7 @@ class SocketTransport:
         self._config_caps = tuple(caps)
 
     async def _read_exact(self, ln: int):
-        if self._reader is None:
+        if not self._reader:
             raise ConnectionError("Socket not connected")
         try:
             return await asyncio.wait_for(
@@ -193,7 +193,7 @@ class SocketTransport:
 
         await self._ensure_connected()
         try:
-            if self._writer is None:
+            if not self._writer:
                 raise ConnectionError("Socket not connected")
             self._writer.write(packet)
             await asyncio.wait_for(self._writer.drain(), timeout=self._timeout)

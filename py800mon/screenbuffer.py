@@ -244,7 +244,7 @@ def _render_runs(row: bytes, use_atascii: bool):
 
 
 def _parse_row_info(row_info, base_addr: int):
-    if row_info is None:
+    if not row_info:
         return None
     if isinstance(row_info, tuple):
         if len(row_info) < 2:

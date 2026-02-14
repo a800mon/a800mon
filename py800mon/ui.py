@@ -4,8 +4,9 @@ import enum
 
 
 class Screen:
-    def __init__(self, scr, layout_initializer=None):
+    def __init__(self, scr, shortcuts, layout_initializer=None):
         self.scr = scr
+        self.shortcuts = shortcuts
         self.windows = []
         self._window_input_handlers = {}
         self._focus_order = []
@@ -41,22 +42,43 @@ class Screen:
         self.windows.append(window)
 
     def set_window_input_handler(self, window, handler):
-        if handler is None:
+        if not handler:
             self._window_input_handlers.pop(window, None)
             return
         self._window_input_handlers[window] = handler
 
+    def register_window_hotkey(
+        self,
+        window,
+        key,
+        label: str,
+        callback,
+        visible_in_global_bar: bool = False,
+    ):
+        from .shortcuts import Shortcut
+
+        shortcut = Shortcut(
+            key,
+            label,
+            callback,
+            visible_in_global_bar=visible_in_global_bar,
+        )
+        self.shortcuts.add_global(shortcut)
+        window._set_hotkey_label(shortcut.key_as_text())
+
     def set_focus_order(self, windows):
-        self._focus_order = [window for window in windows if window is not None]
+        self._focus_order = [window for window in windows if window]
         self._focus_index = -1
 
     def focus(self, window):
+        if window and not window.visible:
+            return
         old = self.focused
         if old is window:
             return
         self.focused = window
         order = self._focus_cycle_windows()
-        if window is None:
+        if not window:
             self._focus_index = -1
         elif window in order:
             self._focus_index = order.index(window)
@@ -116,14 +138,14 @@ class Screen:
         self._input_handler = handler
 
     def has_input_focus(self):
-        return self._input_handler is not None
+        return bool(self._input_handler)
 
     def handle_input(self, ch):
-        if self._input_handler is None:
-            if self.focused is None:
+        if not self._input_handler:
+            if not self.focused:
                 return False
             handler = self._window_input_handlers.get(self.focused)
-            if handler is None:
+            if not handler:
                 return False
             return bool(handler(ch))
         return bool(self._input_handler(ch))
@@ -259,7 +281,7 @@ class Window:
         self.title = title
         self.redraw_title()
 
-    def set_hotkey_label(self, label: str | None):
+    def _set_hotkey_label(self, label: str | None):
         text = str(label).strip() if label is not None else ""
         value = text if text else None
         if value == self._hotkey_label:
@@ -267,8 +289,19 @@ class Window:
         self._hotkey_label = value
         self.redraw_title()
 
+    def add_hotkey(self, key, label: str, callback, visible_in_global_bar: bool = False):
+        if not self._screen:
+            raise RuntimeError("Window has no parent!")
+        self._screen.register_window_hotkey(
+            self,
+            key,
+            label,
+            callback,
+            visible_in_global_bar=visible_in_global_bar,
+        )
+
     def redraw_title(self):
-        if not self._border or self.outer is None:
+        if not self._border or not self.outer:
             self._dirty = True
             return
         focus_attr = self._frame_attr()
@@ -305,7 +338,7 @@ class Window:
 
     def _frame_attr(self):
         focus_attr = Color.WINDOW_TITLE.attr()
-        if self._screen is not None and self._screen.focused is self:
+        if self._screen and self._screen.focused is self:
             focus_attr = Color.FOCUS.attr()
         return focus_attr
 
@@ -853,7 +886,7 @@ class GridWidget:
 
     def _emit_cell_input_change(self, x: int, y: int, value):
         callback = self.on_cell_input_change
-        if callback is None:
+        if not callback:
             return
         callback(int(x), int(y), value)
 
@@ -884,7 +917,7 @@ class GridWidget:
         if ih <= 0:
             return
         self._clamp_state()
-        has_focus = w._screen is None or w._screen.focused is w
+        has_focus = (not w._screen) or w._screen.focused is w
         total, scroll_offset, scroll_page = self._scrollbar_metrics()
         show_scrollbar = self._show_scrollbar and w._iw > 0 and total > scroll_page
         content_w = w._iw - 1 if show_scrollbar else w._iw
@@ -973,7 +1006,7 @@ class GridWidget:
         if col_idx < 0 or col_idx >= len(self._columns):
             return base
         callback = self._columns[col_idx].attr_callback
-        if callback is None:
+        if not callback:
             return base
         row = self._data[row_idx]
         value = row[col_idx] if col_idx < len(row) else ""
@@ -1108,7 +1141,7 @@ class GridWidget:
 
         x = w._iw - 1
         track_attr = Color.WINDOW_TITLE.attr()
-        if w._screen is not None and w._screen.focused is w:
+        if w._screen and w._screen.focused is w:
             thumb_attr = Color.FOCUS.attr()
         else:
             thumb_attr = Color.WINDOW_TITLE.attr()

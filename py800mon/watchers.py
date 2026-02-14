@@ -113,7 +113,7 @@ class WatchersViewer(VisualRpcComponent):
         overlay_rows = 0
         if self._input_active:
             overlay_rows += 1
-        if self._pending_row is not None:
+        if self._pending_row:
             overlay_rows += 1
 
         self.grid.set_viewport(y=overlay_rows, height=max(0, ih - overlay_rows))
@@ -136,7 +136,7 @@ class WatchersViewer(VisualRpcComponent):
             )
             self.window.clear_to_eol()
             y += 1
-        if self._pending_row is not None and y < ih:
+        if self._pending_row and y < ih:
             self._draw_pending_row(y)
 
     def handle_input(self, ch):

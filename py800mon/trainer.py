@@ -55,6 +55,6 @@ class Trainer:
         ]
 
     def _read(self):
-        if self._reader is None:
+        if not self._reader:
             raise RuntimeError("Trainer reader is not bound.")
         return self._reader(self.start_addr, self.length)
