@@ -8,10 +8,10 @@ from ...atari.memory import parse_hex
 from ...rpc import Command, RpcException
 from ..common import (
     async_to_sync,
-    format_rpc_exception,
     print_cpu_state,
     rpc_client,
 )
+from ..utils import format_rpc_error
 
 
 HELP_TEXT = (
@@ -168,7 +168,7 @@ def cmd_shell(args):
                     _print_stack_state(await rpc.stack())
                     continue
             except RpcException as ex:
-                sys.stdout.write(format_rpc_exception(ex) + "\n")
+                sys.stdout.write(format_rpc_error(ex) + "\n")
                 continue
 
             sys.stdout.write("Unknown command. " + HELP_TEXT + "\n")

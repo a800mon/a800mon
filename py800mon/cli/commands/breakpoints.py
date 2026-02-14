@@ -4,7 +4,8 @@ import sys
 from ...breakpoints import format_bp_condition, parse_bp_clauses
 from ...atari.memory import parse_hex
 from ...rpc import Command
-from ..common import async_to_sync, format_on_off_badge, rpc_client
+from ..common import async_to_sync, rpc_client
+from ..utils import format_toggle_badge
 
 
 def register(subparsers):
@@ -54,7 +55,7 @@ def register(subparsers):
 
 def cmd_list(args):
     bp = async_to_sync(rpc_client(args.socket).breakpoint_list())
-    sys.stdout.write(f"Enabled: {format_on_off_badge(bp.enabled)}\n")
+    sys.stdout.write(f"Enabled: {format_toggle_badge(bp.enabled)}\n")
     if not bp.clauses:
         sys.stdout.write("No breakpoint clauses.\n")
         return 0

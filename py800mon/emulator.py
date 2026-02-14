@@ -34,27 +34,3 @@ EMULATOR_CAPABILITIES = [
     (0x001F, "libpng support (HAVE_LIBPNG)"),
     (0x0020, "zlib support (HAVE_LIBZ)"),
 ]
-
-
-def format_on_off_badge(enabled: bool, use_color: bool = False) -> str:
-    text = "ON " if enabled else "OFF"
-    badge = f" {text} "
-    if not use_color:
-        return badge
-    if enabled:
-        return f"\x1b[42;30m{badge}\x1b[0m"
-    return f"\x1b[41;97;1m{badge}\x1b[0m"
-
-
-def format_config_lines(cap_ids, use_color: bool = False):
-    enabled = set(int(v) & 0xFFFF for v in cap_ids)
-    known = set()
-    lines = []
-    for cap_id, desc in EMULATOR_CAPABILITIES:
-        known.add(cap_id)
-        badge = format_on_off_badge(cap_id in enabled, use_color=use_color)
-        lines.append(f"{badge} {desc}")
-    for cap_id in sorted(v for v in enabled if v not in known):
-        badge = format_on_off_badge(True, use_color=use_color)
-        lines.append(f"{badge} Unknown capability 0x{cap_id:04X}")
-    return lines

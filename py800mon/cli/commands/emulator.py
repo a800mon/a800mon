@@ -1,12 +1,12 @@
 import sys
 
+from ...emulator import EMULATOR_CAPABILITIES
 from ...rpc import Command
 from ..common import (
-    EMULATOR_CAPABILITIES,
     async_to_sync,
-    format_on_off_badge,
     rpc_client,
 )
+from ..utils import format_capability_lines
 
 
 def register(subparsers):
@@ -67,13 +67,6 @@ def cmd_restart(args):
 
 def cmd_features(args):
     caps = async_to_sync(rpc_client(args.socket).build_features())
-    enabled = set(caps)
-    known = set()
-    for cap_id, desc in EMULATOR_CAPABILITIES:
-        known.add(cap_id)
-        badge = format_on_off_badge(cap_id in enabled)
-        sys.stdout.write(f"{badge} {desc}\n")
-    for cap_id in sorted(v for v in enabled if v not in known):
-        badge = format_on_off_badge(True)
-        sys.stdout.write(f"{badge} Unknown capability 0x{cap_id:04X}\n")
+    for line in format_capability_lines(caps, EMULATOR_CAPABILITIES):
+        sys.stdout.write(line + "\n")
     return 0

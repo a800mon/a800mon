@@ -17,7 +17,7 @@ from .commands import (
     tape,
     trainer,
 )
-from .common import format_rpc_exception
+from .utils import format_rpc_error
 
 
 def parse_args(argv):
@@ -61,5 +61,5 @@ def main(argv=None):
             return cmd_monitor(args)
         return args.func(args)
     except RpcException as ex:
-        sys.stderr.write(format_rpc_exception(ex) + "\n")
+        sys.stderr.write(format_rpc_error(ex) + "\n")
         return 1
