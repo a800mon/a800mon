@@ -14,13 +14,14 @@ import (
 
 type ScreenBufferInspector struct {
 	BaseWindowComponent
-	rpc            *RpcClient
-	grid           *GridWidget
-	rows           []ScreenRow
+	rpc          *RpcClient
+	grid         *GridWidget
+	rows         []ScreenRow
+	hasUseATASCII bool
 	lastUseATASCII bool
-	lastSnapshot   string
-	rpcThrottle    time.Duration
-	nextRPCAt      time.Time
+	lastSnapshot string
+	rpcThrottle  time.Duration
+	nextRPCAt    time.Time
 }
 
 type rowRangeIndex struct {
@@ -48,25 +49,40 @@ func (s *ScreenBufferInspector) HandleInput(ch int) bool {
 		return s.grid.HandleInput(ch)
 	}
 	st := State()
+	enabled := !st.UseATASCII
 	if app := s.App(); app != nil {
-		app.DispatchAction(ActionSetATASCII, !st.UseATASCII)
+		app.DispatchAction(ActionSetATASCII, enabled)
 	}
+	s.hasUseATASCII = true
+	s.lastUseATASCII = enabled
+	w := s.Window()
+	w.SetTagActive("atascii", enabled)
+	w.SetTagActive("ascii", !enabled)
 	return true
 }
 
 func (s *ScreenBufferInspector) Update(ctx context.Context) (bool, error) {
+	st := State()
+	changed := false
+	if !s.hasUseATASCII || s.lastUseATASCII != st.UseATASCII {
+		s.hasUseATASCII = true
+		s.lastUseATASCII = st.UseATASCII
+		w := s.Window()
+		w.SetTagActive("atascii", st.UseATASCII)
+		w.SetTagActive("ascii", !st.UseATASCII)
+		changed = true
+	}
 	now := time.Now()
 	if now.Before(s.nextRPCAt) {
-		return false, nil
+		return changed, nil
 	}
 	s.nextRPCAt = now.Add(s.rpcThrottle)
-	st := State()
 	mapper := dl.NewMemoryMapper(st.DList, st.DMACTL, 0x400)
 	fetchRanges, rowSlices := mapper.Plan()
 	if len(fetchRanges) == 0 {
 		s.rows = nil
 		if s.lastSnapshot == "" {
-			return false, nil
+			return changed, nil
 		}
 		s.lastSnapshot = ""
 		return true, nil
@@ -81,7 +97,7 @@ func (s *ScreenBufferInspector) Update(ctx context.Context) (bool, error) {
 		}
 		chunk, err := s.rpc.ReadMemoryChunked(ctx, uint16(r.Start&0xFFFF), ln)
 		if err != nil {
-			return false, nil
+			return changed, nil
 		}
 		buffer = append(buffer, chunk...)
 		index = append(index, rowRangeIndex{s: r.Start, e: r.End, off: off})
@@ -98,7 +114,7 @@ func (s *ScreenBufferInspector) Update(ctx context.Context) (bool, error) {
 	s.rows = rows
 	snapshot := buildScreenRowsSnapshot(rows)
 	if s.lastSnapshot == snapshot {
-		return false, nil
+		return changed, nil
 	}
 	s.lastSnapshot = snapshot
 	return true, nil
@@ -141,11 +157,6 @@ func readRow(buffer []byte, index []rowRangeIndex, addr, ln int) []byte {
 func (s *ScreenBufferInspector) Render(_force bool) {
 	st := State()
 	w := s.Window()
-	if s.lastUseATASCII != st.UseATASCII {
-		s.lastUseATASCII = st.UseATASCII
-		w.SetTagActive("atascii", st.UseATASCII)
-		w.SetTagActive("ascii", !st.UseATASCII)
-	}
 	contentWidth := w.Width() - 8
 	if contentWidth < 0 {
 		contentWidth = 0

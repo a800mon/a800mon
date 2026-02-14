@@ -34,7 +34,6 @@ func (a *AppModeUpdater) Update(ctx context.Context) (bool, error) {
 }
 
 func (a *AppModeUpdater) HandleInput(ch int) bool { return false }
-func (a *AppModeUpdater) Render(force bool)       {}
 
 type BreakpointsWindowUpdater struct {
 	app         *App
@@ -67,7 +66,6 @@ func (u *BreakpointsWindowUpdater) Update(ctx context.Context) (bool, error) {
 }
 
 func (u *BreakpointsWindowUpdater) HandleInput(ch int) bool { return false }
-func (u *BreakpointsWindowUpdater) Render(force bool)       {}
 
 func RunMonitor(ctx context.Context, socketPath string) error {
 	screen := NewScreen(nil)

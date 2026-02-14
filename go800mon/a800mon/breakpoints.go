@@ -64,11 +64,6 @@ type BreakpointsViewer struct {
 	lastSnapshot     string
 	lastStateSeq     uint64
 	hasSnapshot      bool
-	selected         *int
-	inputSnapshot    string
-	inputInvalid     bool
-	parsedClauses    [][]BreakpointCondition
-	hasParsedClauses bool
 	pendingAdd       [][]BreakpointCondition
 	hasPendingAdd    bool
 	pendingDelete    *int
@@ -105,7 +100,7 @@ func (v *BreakpointsViewer) Update(ctx context.Context) (bool, error) {
 	if v.pendingClear {
 		v.pendingClear = false
 		if err := v.rpc.BPClear(ctx); err == nil {
-			v.selected = nil
+			v.grid.SetSelectedRow(nil)
 			v.refreshRequested = true
 			changed = true
 		}
@@ -163,7 +158,6 @@ func (v *BreakpointsViewer) Update(ctx context.Context) (bool, error) {
 		}
 		clauses = append(clauses, BreakpointClauseRow{Conditions: conds})
 	}
-	v.clampSelected(len(clauses))
 	snapshot := buildBreakpointsSnapshot(list.Enabled, clauses)
 	if v.hasSnapshot && snapshot == v.lastSnapshot {
 		return changed, nil
@@ -182,17 +176,13 @@ func (v *BreakpointsViewer) Render(_force bool) {
 	if ih <= 0 {
 		return
 	}
-	dialogActive := v.clearDialog != nil && v.clearDialog.Active()
-	inputActive := v.inputActive
-	rowBase := 0
-	if inputActive || dialogActive {
-		rowBase = 1
+	overlayRows := 0
+	if v.inputActive || (v.clearDialog != nil && v.clearDialog.Active()) {
+		overlayRows = 1
 	}
 	w.SetTagActive("bp_enabled", v.enabled)
-	rows := make([][]string, 0, len(v.clauses)+2)
-	if rowBase > 0 {
-		rows = append(rows, []string{""})
-	}
+	g.SetViewport(overlayRows, max(0, ih-overlayRows))
+	rows := make([][]string, 0, len(v.clauses)+1)
 
 	if len(v.clauses) == 0 {
 		rows = append(rows, []string{"", "No breakpoint clauses."})
@@ -204,19 +194,13 @@ func (v *BreakpointsViewer) Render(_force bool) {
 				v.formatClauseText(clause),
 			})
 		}
-		if v.selected == nil {
-			g.SetSelectedRow(nil)
-		} else {
-			idx := *v.selected + rowBase
-			g.SetSelectedRow(&idx)
-		}
 	}
 	g.SetData(rows)
 	g.Render()
 
-	if dialogActive {
+	if v.clearDialog != nil && v.clearDialog.Active() {
 		v.clearDialog.Render()
-	} else if inputActive {
+	} else if v.inputActive {
 		v.inputWidget.Render(false)
 	}
 }
@@ -234,13 +218,6 @@ func (v *BreakpointsViewer) HandleInput(ch int) bool {
 		return true
 	}
 	if v.grid.HandleInput(ch) {
-		idx, ok := v.grid.SelectedRow()
-		if !ok {
-			v.selected = nil
-		} else {
-			v.selected = &idx
-			v.clampSelected(len(v.clauses))
-		}
 		return true
 	}
 	if ch == KeyDelete() || ch == 330 {
@@ -284,29 +261,22 @@ func (v *BreakpointsViewer) formatConditionText(cond BreakpointConditionRow) str
 }
 
 func (v *BreakpointsViewer) queueDeleteSelected() {
-	if v.selected == nil {
-		return
-	}
-	idx := *v.selected
-	if idx < 0 || idx >= len(v.clauses) {
+	idx, ok := v.grid.SelectedRow()
+	if !ok {
 		return
 	}
 	v.pendingDelete = &idx
 	if idx >= len(v.clauses)-1 {
 		if len(v.clauses) <= 1 {
-			v.selected = nil
+			v.grid.SetSelectedRow(nil)
 		} else {
 			next := len(v.clauses) - 2
-			v.selected = &next
+			v.grid.SetSelectedRow(&next)
 		}
 	}
 }
 
 func (v *BreakpointsViewer) openInput(initial string) {
-	v.inputSnapshot = initial
-	v.inputInvalid = false
-	v.parsedClauses = nil
-	v.hasParsedClauses = false
 	v.inputActive = true
 	v.inputWidget.Activate(initial)
 	v.inputWidget.SetInvalid(false)
@@ -316,9 +286,6 @@ func (v *BreakpointsViewer) openInput(initial string) {
 }
 
 func (v *BreakpointsViewer) closeInput() {
-	v.inputInvalid = false
-	v.parsedClauses = nil
-	v.hasParsedClauses = false
 	v.inputActive = false
 	v.inputWidget.SetInvalid(false)
 	v.inputWidget.Deactivate()
@@ -330,67 +297,42 @@ func (v *BreakpointsViewer) closeInput() {
 func (v *BreakpointsViewer) onInputChange(text string) {
 	trimmed := strings.TrimSpace(text)
 	if trimmed == "" {
-		v.inputInvalid = false
-		v.parsedClauses = nil
-		v.hasParsedClauses = false
 		v.inputWidget.SetInvalid(false)
 		return
 	}
-	clauses, err := parseBPClauses(trimmed)
-	if err != nil {
-		v.inputInvalid = true
-		v.parsedClauses = nil
-		v.hasParsedClauses = false
+	if _, err := parseBPClauses(trimmed); err != nil {
 		v.inputWidget.SetInvalid(true)
 		return
 	}
-	v.inputInvalid = false
-	v.parsedClauses = clauses
-	v.hasParsedClauses = true
 	v.inputWidget.SetInvalid(false)
 }
 
 func (v *BreakpointsViewer) handleTextInput(ch int) bool {
 	if ch == 27 {
-		_ = v.inputWidget.SetBuffer(v.inputSnapshot)
 		v.closeInput()
 		return true
 	}
 	if ch == 10 || ch == 13 || ch == KeyEnter() {
-		if v.inputInvalid {
+		if v.inputWidget.Invalid() {
 			return true
 		}
-		if v.hasParsedClauses {
-			v.pendingAdd = append([][]BreakpointCondition(nil), v.parsedClauses...)
+		trimmed := strings.TrimSpace(v.inputWidget.Buffer())
+		if trimmed != "" {
+			clauses, err := parseBPClauses(trimmed)
+			if err != nil {
+				v.inputWidget.SetInvalid(true)
+				return true
+			}
+			v.pendingAdd = append([][]BreakpointCondition(nil), clauses...)
 			v.hasPendingAdd = true
 		}
 		v.closeInput()
 		return true
 	}
-	if ch == KeyBackspace() || ch == 127 || ch == 8 {
-		v.inputWidget.Backspace()
+	if v.inputWidget.HandleKey(ch) {
 		return true
 	}
-	v.inputWidget.AppendChar(ch)
 	return true
-}
-
-func (v *BreakpointsViewer) clampSelected(rowCount int) {
-	if rowCount <= 0 {
-		v.selected = nil
-		return
-	}
-	if v.selected == nil {
-		return
-	}
-	idx := *v.selected
-	if idx < 0 {
-		idx = 0
-	}
-	if idx >= rowCount {
-		idx = rowCount - 1
-	}
-	v.selected = &idx
 }
 
 func bpTypeName(condType byte) string {

@@ -82,7 +82,6 @@ func (d *ActionDispatcher) Update(ctx context.Context) (bool, error) {
 	return true, nil
 }
 func (d *ActionDispatcher) HandleInput(ch int) bool { return false }
-func (d *ActionDispatcher) Render(force bool)       {}
 
 func (d *ActionDispatcher) TakeRPCFlushed() bool {
 	flushed := d.rpcFlushed

@@ -164,16 +164,12 @@ class BreakpointsViewer(VisualRpcComponent):
         self._last_state_seq = None
         self._enabled = False
         self._rows = []
-        self._selected_row_offset = 0
-        self._input_snapshot = ""
         self._input_active = False
-        self._input_invalid = False
         self._pending_add_clauses = None
         self._pending_delete = None
         self._pending_clear = False
         self._pending_enabled = None
         self._refresh_requested = False
-        self._input_clauses = None
         self._clear_dialog = DialogWidget(self.window)
         self._input_widget = InputWidget(
             self.window,
@@ -198,7 +194,6 @@ class BreakpointsViewer(VisualRpcComponent):
         except RpcException:
             return changed
         self._refresh_requested = False
-        self._clamp_selected(len(bp.clauses))
         snapshot = bp
         if snapshot == self._last_snapshot:
             return changed
@@ -208,41 +203,33 @@ class BreakpointsViewer(VisualRpcComponent):
         return True
 
     def render(self, force_redraw=False):
-        self._render_grid()
-
-    def _render_grid(self):
         ih = self.window._ih
         if ih <= 0:
             return
-        dialog_active = self._clear_dialog.active
-        input_active = self._input_active
-        row_base = 1 if (input_active or dialog_active) else 0
+        overlay_rows = 1 if (self._input_active or self._clear_dialog.active) else 0
         self.window.set_tag_active("bp_enabled", self._enabled)
-        self._selected_row_offset = row_base
+        self.grid.set_viewport(y=overlay_rows, height=max(0, ih - overlay_rows))
 
         rows = []
-        if row_base:
-            rows.append(("", ""))
-
         if not self._rows:
             rows.append(("", "No breakpoint clauses."))
             self.grid.set_selected_row(None)
         else:
             for idx, clause in enumerate(self._rows, start=1):
                 rows.append((f"#{idx:02d} ", self._format_clause_text(clause)))
-            selected = self._selected_index()
+            selected = self.grid.selected_row
             if selected is None:
                 self.grid.set_selected_row(None)
             else:
-                self.grid.set_selected_row(selected + self._selected_row_offset)
+                self.grid.set_selected_row(selected)
         self.grid.set_data(rows)
         self.grid.render()
 
-        if dialog_active:
+        if self._clear_dialog.active:
             self._clear_dialog.render()
-        elif input_active:
+        elif self._input_active:
             self.window.cursor = (0, 0)
-            color = Color.INPUT_INVALID if self._input_invalid else Color.TEXT
+            color = Color.INPUT_INVALID if self._input_widget.invalid else Color.TEXT
             attr = color.attr() | curses.A_REVERSE
             self.window.print(self._input_widget.buffer, attr=attr)
             self.window.fill_to_eol(attr=attr)
@@ -278,21 +265,19 @@ class BreakpointsViewer(VisualRpcComponent):
         return False
 
     def _queue_delete_selected(self):
-        idx = self._selected_index()
-        if idx is None or idx < 0 or idx >= len(self._rows):
+        idx = self.grid.selected_row
+        if idx is None:
             return
-        self._pending_delete = int(idx)
+        self._pending_delete = idx
         if idx >= len(self._rows) - 1:
             if len(self._rows) <= 1:
-                self._set_selected_index(None)
+                self.grid.set_selected_row(None)
             else:
-                self._set_selected_index(len(self._rows) - 2)
+                self.grid.set_selected_row(len(self._rows) - 2)
 
     def _close_input(self):
         self._input_active = False
         self._input_widget.set_invalid(False)
-        self._input_invalid = False
-        self._input_clauses = None
         self._input_widget.deactivate()
         self.app.dispatch_action(Actions.SET_INPUT_FOCUS, None)
         try:
@@ -302,11 +287,8 @@ class BreakpointsViewer(VisualRpcComponent):
 
     def _open_input(self, initial: str):
         self._input_active = True
-        self._input_snapshot = str(initial)
-        self._input_widget.activate(self._input_snapshot)
+        self._input_widget.activate(str(initial))
         self._input_widget.set_invalid(False)
-        self._input_invalid = False
-        self._input_clauses = None
         self.app.dispatch_action(Actions.SET_INPUT_FOCUS, self._handle_text_input)
         try:
             curses.curs_set(1)
@@ -316,35 +298,31 @@ class BreakpointsViewer(VisualRpcComponent):
     def _on_input_change(self, query):
         text = str(query).strip()
         if not text:
-            self._input_clauses = None
-            self._input_invalid = False
             self._input_widget.set_invalid(False)
             return
         try:
-            self._input_clauses = parse_bp_clauses(text)
-            self._input_invalid = False
+            parse_bp_clauses(text)
             self._input_widget.set_invalid(False)
         except ValueError:
-            self._input_clauses = None
-            self._input_invalid = True
             self._input_widget.set_invalid(True)
 
     def _handle_text_input(self, ch):
         if ch == 27:
-            self._input_widget.set_buffer(self._input_snapshot)
             self._close_input()
             return True
         if ch in (10, 13, curses.KEY_ENTER):
-            if self._input_invalid:
+            if self._input_widget.invalid:
                 return True
-            if self._input_clauses is not None:
-                self._pending_add_clauses = self._input_clauses
+            text = self._input_widget.buffer.strip()
+            if text:
+                try:
+                    self._pending_add_clauses = parse_bp_clauses(text)
+                except ValueError:
+                    self._input_widget.set_invalid(True)
+                    return True
             self._close_input()
             return True
-        if ch in (curses.KEY_BACKSPACE, 127, 8):
-            self._input_widget.backspace()
-            return True
-        if self._input_widget.append_char(ch):
+        if self._input_widget.handle_key(ch):
             return True
         return True
 
@@ -354,13 +332,13 @@ class BreakpointsViewer(VisualRpcComponent):
             self._pending_clear = False
             try:
                 await self.rpc.breakpoint_clear()
-                self._set_selected_index(None)
+                self.grid.set_selected_row(None)
                 self._refresh_requested = True
                 changed = True
             except RpcException:
                 pass
         if self._pending_delete is not None:
-            idx = int(self._pending_delete)
+            idx = self._pending_delete
             self._pending_delete = None
             try:
                 await self.rpc.breakpoint_delete_clause(idx)
@@ -388,33 +366,3 @@ class BreakpointsViewer(VisualRpcComponent):
                 except RpcException:
                     break
         return changed
-
-    def _clamp_selected(self, row_count: int):
-        if row_count <= 0:
-            self._set_selected_index(None)
-            return
-        cur = self._selected_index()
-        if cur is None:
-            return
-        if cur < 0:
-            self._set_selected_index(0)
-        elif cur >= row_count:
-            self._set_selected_index(row_count - 1)
-
-    def _selected_index(self):
-        idx = self.grid.selected_row
-        if idx is None:
-            return None
-        idx = int(idx) - self._selected_row_offset
-        if idx < 0:
-            return None
-        if idx >= len(self._rows):
-            return None
-        return idx
-
-    def _set_selected_index(self, idx: int | None):
-        if idx is None or len(self._rows) == 0:
-            self.grid.set_selected_row(None)
-            return
-        value = max(0, min(int(idx), len(self._rows) - 1))
-        self.grid.set_selected_row(value + self._selected_row_offset)

@@ -91,29 +91,41 @@ func (i *InputWidget) Buffer() string {
 }
 
 func (i *InputWidget) Activate(initial string) {
-	_ = i.SetBuffer(initial)
+	i.SetBuffer(initial)
 }
 
 func (i *InputWidget) Deactivate() {
 	i.invalid = false
-	_ = i.SetBuffer("")
+	i.SetBuffer("")
 }
 
-func (i *InputWidget) SetBuffer(text string) bool {
+func (i *InputWidget) SetBuffer(text string) {
 	out := []rune(text)
 	if i.maxLength > 0 && len(out) > i.maxLength {
 		out = out[:i.maxLength]
 	}
 	normalized := string(out)
 	if normalized == i.buffer {
-		return false
+		return
 	}
 	i.buffer = normalized
 	i.emitChange()
-	return true
 }
 
-func (i *InputWidget) AppendChar(ch int) bool {
+func (i *InputWidget) backspace() {
+	r := []rune(i.buffer)
+	if len(r) == 0 {
+		return
+	}
+	i.buffer = string(r[:len(r)-1])
+	i.emitChange()
+}
+
+func (i *InputWidget) HandleKey(ch int) bool {
+	if ch == KeyBackspace() || ch == 127 || ch == 8 {
+		i.backspace()
+		return true
+	}
 	r, ok := i.normalizeChecked(ch)
 	if !ok {
 		return false
@@ -122,16 +134,6 @@ func (i *InputWidget) AppendChar(ch int) bool {
 		return false
 	}
 	i.buffer += string(r)
-	i.emitChange()
-	return true
-}
-
-func (i *InputWidget) Backspace() bool {
-	r := []rune(i.buffer)
-	if len(r) == 0 {
-		return false
-	}
-	i.buffer = string(r[:len(r)-1])
 	i.emitChange()
 	return true
 }

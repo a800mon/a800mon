@@ -9,16 +9,13 @@ import (
 
 type WatchersViewer struct {
 	BaseWindowComponent
-	rpc               *RpcClient
-	grid              *GridWidget
-	rows              []WatcherRow
-	pending           *WatcherRow
-	selected          *int
-	inputSnapshot     string
-	inputMode         string
-	lastSnapshot      string
-	searchInput       *InputWidget
-	gridSelectedShift int
+	rpc          *RpcClient
+	grid         *GridWidget
+	rows         []WatcherRow
+	pending      *WatcherRow
+	inputActive  bool
+	lastSnapshot string
+	searchInput  *InputWidget
 }
 
 func NewWatchersViewer(rpc *RpcClient, window *Window) *WatchersViewer {
@@ -40,7 +37,6 @@ func NewWatchersViewer(rpc *RpcClient, window *Window) *WatchersViewer {
 	v.searchInput.SetOnChange(v.onSearchChange)
 	v.Window().WindowCallbacks(func() {
 		v.grid.SetSelectedRow(nil)
-		v.selected = nil
 	}, nil)
 	return v
 }
@@ -93,13 +89,16 @@ func (v *WatchersViewer) Update(ctx context.Context) (bool, error) {
 
 	v.rows = rows
 	v.pending = pending
-	v.clampSelected(len(v.rows))
+	var selected *int
+	if idx, ok := v.grid.SelectedRow(); ok {
+		selected = &idx
+	}
 
 	snapshot := buildWatchersSnapshot(
 		v.rows,
 		v.pending,
-		v.selected,
-		v.inputMode,
+		selected,
+		v.inputActive,
 		v.searchInput.Buffer(),
 	)
 	if snapshot == v.lastSnapshot {
@@ -115,49 +114,43 @@ func (v *WatchersViewer) Render(_force bool) {
 	if ih <= 0 {
 		return
 	}
-	inputActive := v.inputMode == "search"
-	rows := make([][]string, 0, len(v.rows)+2)
-	rowBase := 0
-	if inputActive {
-		rowBase = 1
-		rows = append(rows, []string{""})
+	overlayRows := 0
+	if v.inputActive {
+		overlayRows++
 	}
-	pendingOffset := 0
 	if v.pending != nil {
-		pendingOffset = 1
-		rows = append(rows, v.watcherRowCells(*v.pending))
+		overlayRows++
 	}
+	v.grid.SetViewport(overlayRows, max(0, ih-overlayRows))
+	rows := make([][]string, 0, len(v.rows))
 	for _, row := range v.rows {
 		rows = append(rows, v.watcherRowCells(row))
 	}
 
-	v.gridSelectedShift = rowBase + pendingOffset
 	v.grid.SetData(rows)
-	if v.selected == nil {
-		v.grid.SetSelectedRow(nil)
-	} else {
-		idx := *v.selected + v.gridSelectedShift
-		v.grid.SetSelectedRow(&idx)
-	}
 	v.grid.Render()
 
-	if inputActive {
-		w.Cursor(0, 0)
+	y := 0
+	if v.inputActive {
+		w.Cursor(0, y)
 		text := v.searchInput.Buffer()
 		if len([]rune(text)) > 8 {
 			text = string([]rune(text)[:8])
 		}
 		w.Print(padRight(text, 8), ColorText.Attr()|AttrReverse(), false)
 		w.ClearToEOL(false)
+		y++
+	}
+	if v.pending != nil && y < ih {
+		v.drawPendingRow(y, *v.pending)
 	}
 }
 
 func (v *WatchersViewer) HandleInput(ch int) bool {
 	if ch == int('/') {
-		v.inputMode = "search"
-		v.inputSnapshot = ""
-		v.searchInput.Activate(v.inputSnapshot)
-		v.pending = nil
+		v.inputActive = true
+		v.searchInput.Activate("")
+		v.clearPending()
 		if app := v.App(); app != nil {
 			app.DispatchAction(ActionSetInputFocus, v.handleSearchInput)
 		}
@@ -165,11 +158,6 @@ func (v *WatchersViewer) HandleInput(ch int) bool {
 	}
 
 	if v.grid.HandleInput(ch) {
-		offset := 0
-		if v.pending != nil {
-			offset++
-		}
-		v.syncSelectedFromGrid(offset)
 		return true
 	}
 
@@ -182,7 +170,8 @@ func (v *WatchersViewer) HandleInput(ch int) bool {
 }
 
 func (v *WatchersViewer) closeInput() {
-	v.inputMode = ""
+	v.clearPending()
+	v.inputActive = false
 	v.searchInput.Deactivate()
 	if app := v.App(); app != nil {
 		app.DispatchAction(ActionSetInputFocus, nil)
@@ -191,25 +180,19 @@ func (v *WatchersViewer) closeInput() {
 
 func (v *WatchersViewer) handleSearchInput(ch int) bool {
 	if ch == 27 {
-		_ = v.searchInput.SetBuffer(v.inputSnapshot)
-		v.pending = nil
 		v.closeInput()
 		return true
 	}
 	if ch == 10 || ch == 13 || ch == KeyEnter() {
 		if v.pending != nil {
 			v.commitPending()
-		} else {
-			v.pending = nil
 		}
 		v.closeInput()
 		return true
 	}
-	if ch == KeyBackspace() || ch == 127 || ch == 8 {
-		v.searchInput.Backspace()
+	if v.searchInput.HandleKey(ch) {
 		return true
 	}
-	v.searchInput.AppendChar(ch)
 	return true
 }
 
@@ -221,68 +204,21 @@ func (v *WatchersViewer) commitPending() {
 	for i, row := range v.rows {
 		if row.Addr == addr {
 			idx := i
-			v.selected = &idx
-			v.pending = nil
+			v.grid.SetSelectedRow(&idx)
 			return
 		}
 	}
 	v.rows = append([]WatcherRow{{Addr: addr, Value: 0, NextValue: 0, Comment: LookupSymbol(addr)}}, v.rows...)
-	v.selected = nil
-	v.pending = nil
+	v.grid.SetSelectedRow(nil)
 }
 
 func (v *WatchersViewer) deleteSelected() {
-	if v.selected == nil {
-		return
-	}
-	idx := *v.selected
-	if idx < 0 || idx >= len(v.rows) {
-		return
-	}
-	rows := make([]WatcherRow, 0, len(v.rows)-1)
-	rows = append(rows, v.rows[:idx]...)
-	rows = append(rows, v.rows[idx+1:]...)
-	v.rows = rows
-	if len(v.rows) == 0 {
-		v.selected = nil
-		return
-	}
-	if idx >= len(v.rows) {
-		idx = len(v.rows) - 1
-	}
-	v.selected = &idx
-}
-
-func (v *WatchersViewer) syncSelectedFromGrid(offset int) {
 	idx, ok := v.grid.SelectedRow()
 	if !ok {
-		v.selected = nil
 		return
 	}
-	idx -= offset
-	if idx < 0 || idx >= len(v.rows) {
-		v.selected = nil
-		return
-	}
-	v.selected = &idx
-}
-
-func (v *WatchersViewer) clampSelected(rowCount int) {
-	if rowCount <= 0 {
-		v.selected = nil
-		return
-	}
-	if v.selected == nil {
-		return
-	}
-	idx := *v.selected
-	if idx < 0 {
-		idx = 0
-	}
-	if idx >= rowCount {
-		idx = rowCount - 1
-	}
-	v.selected = &idx
+	v.rows = append(v.rows[:idx], v.rows[idx+1:]...)
+	v.grid.SetSelectedRow(&idx)
 }
 
 func (v *WatchersViewer) watcherRowCells(row WatcherRow) []string {
@@ -297,16 +233,38 @@ func (v *WatchersViewer) watcherRowCells(row WatcherRow) []string {
 	}
 }
 
+func (v *WatchersViewer) drawPendingRow(y int, row WatcherRow) {
+	cells := v.watcherRowCells(row)
+	attrs := []int{
+		ColorAddress.Attr(),
+		ColorText.Attr(),
+		ColorAddress.Attr(),
+		ColorText.Attr(),
+		ColorText.Attr(),
+		ColorComment.Attr(),
+	}
+	w := v.Window()
+	w.Cursor(0, y)
+	for i, cell := range cells {
+		w.Print(cell, attrs[i], false)
+	}
+	w.ClearToEOL(false)
+}
+
+func (v *WatchersViewer) clearPending() {
+	v.pending = nil
+}
+
 func (v *WatchersViewer) onSearchChange(text string) {
 	addr, ok := FindSymbolOrAddress(text)
 	if !ok {
-		v.pending = nil
+		v.clearPending()
 		return
 	}
 	v.pending = &WatcherRow{Addr: addr, Value: 0, NextValue: 0, Comment: LookupSymbol(addr)}
 }
 
-func buildWatchersSnapshot(rows []WatcherRow, pending *WatcherRow, selected *int, inputMode string, inputText string) string {
+func buildWatchersSnapshot(rows []WatcherRow, pending *WatcherRow, selected *int, inputActive bool, inputText string) string {
 	parts := make([]string, 0, len(rows)+8)
 	for _, row := range rows {
 		parts = append(parts, fmt.Sprintf("%04X:%02X:%02X:%s", row.Addr, row.Value, row.NextValue, row.Comment))
@@ -320,6 +278,6 @@ func buildWatchersSnapshot(rows []WatcherRow, pending *WatcherRow, selected *int
 		parts = append(parts, "sel:"+strconv.Itoa(*selected))
 	}
 	parts = append(parts, "in:"+inputText)
-	parts = append(parts, "mode:"+inputMode)
+	parts = append(parts, fmt.Sprintf("input:%t", inputActive))
 	return strings.Join(parts, "|")
 }

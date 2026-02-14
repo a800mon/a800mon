@@ -11,7 +11,6 @@ func NewShortcutsComponent(shortcuts *ShortcutManager) *ShortcutsComponent {
 }
 
 func (s *ShortcutsComponent) Update(ctx context.Context) (bool, error) { return false, nil }
-func (s *ShortcutsComponent) Render(force bool)                        {}
 
 func (s *ShortcutsComponent) HandleInput(ch int) bool {
 	st := State()

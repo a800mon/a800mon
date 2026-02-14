@@ -2,7 +2,6 @@ import dataclasses
 import time
 
 from . import debug
-from .actions import Actions
 from .app import VisualRpcComponent
 from .appstate import state
 from .atascii import atascii_to_curses, screen_to_atascii
@@ -50,7 +49,7 @@ class ScreenBufferInspector(VisualRpcComponent):
         self._cx = 0
         self._cy = 0
         self._dmactl = 0
-        self._last_use_atascii = None
+        self._use_atascii = True
         self._screen_buffer = ScreenBuffer()
         self._rpc_throttle_s = 0.1
         self._next_rpc_at = 0.0
@@ -105,7 +104,9 @@ class ScreenBufferInspector(VisualRpcComponent):
 
     def handle_input(self, ch):
         if ch in (ord(" "), ord("a"), ord("A")):
-            self.app.dispatch_action(Actions.SET_ATASCII, not state.use_atascii)
+            self._use_atascii = not self._use_atascii
+            self.window.set_tag_active("atascii", self._use_atascii)
+            self.window.set_tag_active("ascii", not self._use_atascii)
             return True
         return self.grid.handle_input(ch)
 
@@ -122,11 +123,6 @@ class ScreenBufferInspector(VisualRpcComponent):
         raise NotImplementedError
 
     def render(self, force_redraw=False) -> None:
-        if self._last_use_atascii != state.use_atascii:
-            self._last_use_atascii = state.use_atascii
-            self.window.set_tag_active("atascii", state.use_atascii)
-            self.window.set_tag_active("ascii", not state.use_atascii)
-
         content_width = self.window._iw - 8
         if content_width < 0:
             content_width = 0
@@ -158,7 +154,7 @@ class ScreenBufferInspector(VisualRpcComponent):
             content = ""
             if left_pad > 0:
                 content += "·" * left_pad
-            for text, _attr in _render_runs(row, state.use_atascii):
+            for text, _attr in _render_runs(row, self._use_atascii):
                 if text:
                     content += text
             if right_pad > 0:

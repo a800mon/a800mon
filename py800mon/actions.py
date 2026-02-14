@@ -18,7 +18,6 @@ class Actions(enum.Enum):
     WARMSTART = enum.auto()
     TERMINATE = enum.auto()
     TOGGLE_FREEZE = enum.auto()
-    SET_ATASCII = enum.auto()
     SET_DISASSEMBLY = enum.auto()
     SET_DISASSEMBLY_ADDR = enum.auto()
     SET_BREAKPOINTS_SUPPORTED = enum.auto()
@@ -112,9 +111,6 @@ class ActionDispatcher(Component):
             return
         if action == Actions.TOGGLE_FREEZE:
             store.set_ui_frozen(not state.ui_frozen)
-            return
-        if action == Actions.SET_ATASCII:
-            store.set_use_atascii(bool(value))
             return
         if action == Actions.SET_DISASSEMBLY:
             store.set_disassembly_enabled(bool(value))

@@ -213,9 +213,6 @@ class DisplayListViewer(VisualRpcComponent):
             return True
 
     def render(self, force_redraw=False):
-        self._render_grid()
-
-    def _render_grid(self):
         rows = []
         for count, entry in state.dlist.compacted_entries():
             if count > 1:

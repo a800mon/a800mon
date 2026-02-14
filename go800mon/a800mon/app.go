@@ -106,7 +106,7 @@ func (a *App) Loop(ctx context.Context) error {
 		}
 		if State().UIFrozen {
 			if hadInput && !wasFrozen {
-				a.renderComponents(true)
+				a.renderComponents(true, true)
 			}
 			a.DispatchAction(ActionSetFrameTimeMS, int(time.Since(start).Milliseconds()))
 			continue
@@ -133,7 +133,7 @@ func (a *App) Loop(ctx context.Context) error {
 		if a.statusUpdater != nil && a.dispatcher != nil && a.dispatcher.TakeRPCFlushed() {
 			a.statusUpdater.RequestRefresh()
 		}
-		a.renderComponents(hadInput || hadUpdates || hadResize)
+		a.renderComponents(hadInput || hadUpdates || hadResize, false)
 		a.DispatchAction(ActionSetFrameTimeMS, int(time.Since(start).Milliseconds()))
 	}
 }
@@ -169,13 +169,13 @@ func (a *App) updateState(ctx context.Context) (bool, error) {
 	return changed, nil
 }
 
-func (a *App) renderComponents(force bool) {
-	if force {
+func (a *App) renderComponents(render bool, force bool) {
+	if render || force {
 		for _, c := range a.visual {
 			if !c.Window().Visible() {
 				continue
 			}
-			c.Render(true)
+			c.Render(force)
 		}
 	}
 	needsUpdate := force
@@ -216,5 +216,4 @@ func NewBaseWindowComponent(window *Window) BaseWindowComponent {
 	return BaseWindowComponent{window: window}
 }
 
-func (b *BaseWindowComponent) Window() *Window   { return b.window }
-func (b *BaseWindowComponent) Render(force bool) {}
+func (b *BaseWindowComponent) Window() *Window { return b.window }

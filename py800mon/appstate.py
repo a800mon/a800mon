@@ -28,7 +28,6 @@ class AppStateData:
     last_rpc_error: str | None
     active_mode: AppMode
     ui_frozen: bool
-    use_atascii: bool
     disassembly_enabled: bool
     disassembly_addr: int | None
     dmactl: int
@@ -48,7 +47,6 @@ _state = AppStateData(
     last_rpc_error=None,
     active_mode=AppMode.NORMAL,
     ui_frozen=False,
-    use_atascii=True,
     disassembly_enabled=True,
     disassembly_addr=None,
     dmactl=0,
@@ -64,9 +62,6 @@ class StateStore:
 
     def set_ui_frozen(self, enabled: bool):
         self._s.ui_frozen = bool(enabled)
-
-    def set_use_atascii(self, enabled: bool):
-        self._s.use_atascii = enabled
 
     def set_disassembly_enabled(self, enabled: bool):
         self._s.disassembly_enabled = enabled

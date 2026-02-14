@@ -602,7 +602,7 @@ func linearAddrs(decoded []disasm.DecodedInstruction) []uint16 {
 
 func (d *DisassemblyViewer) handleAddressInput(ch int) bool {
 	if ch == 27 {
-		_ = d.addressInput.SetBuffer(strings.ToUpper(d.inputSnapshot))
+		d.addressInput.SetBuffer(strings.ToUpper(d.inputSnapshot))
 		d.updateAddressInput(d.addressInput.Buffer())
 		d.closeInput()
 		return true
@@ -617,7 +617,8 @@ func (d *DisassemblyViewer) handleAddressInput(ch int) bool {
 	}
 	if ch == KeyBackspace() || ch == 127 || ch == 8 {
 		d.replaceOnNextInput = false
-		if d.addressInput.Backspace() {
+		prev := d.addressInput.Buffer()
+		if d.addressInput.HandleKey(ch) && d.addressInput.Buffer() != prev {
 			d.updateAddressInput(d.addressInput.Buffer())
 		}
 		return true
@@ -626,11 +627,14 @@ func (d *DisassemblyViewer) handleAddressInput(ch int) bool {
 		if !d.addressInput.AcceptsChar(ch) {
 			return true
 		}
-		_ = d.addressInput.SetBuffer("")
+		d.addressInput.SetBuffer("")
 		d.replaceOnNextInput = false
 	}
-	if d.addressInput.AppendChar(ch) {
-		d.updateAddressInput(d.addressInput.Buffer())
+	prev := d.addressInput.Buffer()
+	if d.addressInput.HandleKey(ch) {
+		if d.addressInput.Buffer() != prev {
+			d.updateAddressInput(d.addressInput.Buffer())
+		}
 		return true
 	}
 	return true

@@ -498,6 +498,8 @@ class GridWidget:
         self._virtual_total = None
         self._virtual_offset = None
         self._virtual_page = None
+        self._viewport_y = 0
+        self._viewport_h = None
         self.editable_column = None
         self.on_cell_input_change = None
         self._editing_active = False
@@ -635,6 +637,15 @@ class GridWidget:
         self._selection_enabled = new_value
         self.window._dirty = True
 
+    def set_viewport(self, y: int = 0, height: int | None = None):
+        new_y = max(0, int(y))
+        new_h = None if height is None else max(0, int(height))
+        if new_y == self._viewport_y and new_h == self._viewport_h:
+            return
+        self._viewport_y = new_y
+        self._viewport_h = new_h
+        self.window._dirty = True
+
     def set_editable_columns_range(self, start_column_idx: int, end_column_idx: int):
         start = int(start_column_idx)
         end = int(end_column_idx)
@@ -705,7 +716,8 @@ class GridWidget:
         self.set_offset(self._offset + int(delta))
 
     def scroll_page(self, direction: int):
-        page = max(1, self.window._ih)
+        _y, viewport_h = self._viewport_metrics()
+        page = max(1, viewport_h)
         self.scroll(int(direction) * page)
 
     def home(self):
@@ -730,7 +742,8 @@ class GridWidget:
         self.selected_row = max(0, min(cur + step, count - 1))
 
     def move_selected_page(self, direction: int):
-        page = max(1, self.window._ih)
+        _y, viewport_h = self._viewport_metrics()
+        page = max(1, viewport_h)
         self.move_selected(int(direction) * page)
 
     def select_home(self):
@@ -845,7 +858,7 @@ class GridWidget:
         callback(int(x), int(y), value)
 
     def ensure_row_visible(self, idx: int):
-        ih = self.window._ih
+        _y, ih = self._viewport_metrics()
         if ih <= 0:
             return
         if not self._rows:
@@ -867,7 +880,7 @@ class GridWidget:
 
     def render(self):
         w = self.window
-        ih = w._ih
+        viewport_y, ih = self._viewport_metrics()
         if ih <= 0:
             return
         self._clamp_state()
@@ -905,7 +918,7 @@ class GridWidget:
                 if text:
                     cut = min(len(text), content_w - x)
                     if cut > 0:
-                        w.cursor = (x, drawn)
+                        w.cursor = (x, viewport_y + drawn)
                         w.print(
                             text[:cut],
                             attr=self._cell_attr(col_idx, row_idx) | row_attr,
@@ -914,24 +927,34 @@ class GridWidget:
                 if col_idx < col_count - 1 and self._col_gap > 0 and x < content_w:
                     gap = min(self._col_gap, content_w - x)
                     if gap > 0:
-                        w.cursor = (x, drawn)
+                        w.cursor = (x, viewport_y + drawn)
                         w.print(" " * gap, attr=row_attr)
                         x += gap
-            w.cursor = (x, drawn)
+            w.cursor = (x, viewport_y + drawn)
             if x < content_w:
                 fill = " " * (content_w - x)
                 w.print(fill, attr=row_attr)
             w.clear_to_eol()
             drawn += 1
         if drawn < ih:
-            w.cursor = (0, drawn)
-            w.clear_to_bottom()
+            start_y = viewport_y + drawn
+            end_y = viewport_y + ih
+            for y in range(start_y, end_y):
+                w.cursor = (0, y)
+                w.clear_to_eol()
         if show_scrollbar:
-            self._draw_grid_scrollbar(total, scroll_offset, scroll_page)
-        self._render_edit_overlay(start, content_w)
+            self._draw_grid_scrollbar(
+                total,
+                scroll_offset,
+                scroll_page,
+                viewport_y,
+                ih,
+            )
+        self._render_edit_overlay(start, content_w, viewport_y, ih)
 
     def _max_offset(self) -> int:
-        return max(0, len(self._rows) - self.window._ih)
+        _y, ih = self._viewport_metrics()
+        return max(0, len(self._rows) - ih)
 
     def _column_width(self, col_idx: int) -> int:
         if col_idx < 0 or col_idx >= len(self._columns):
@@ -998,7 +1021,13 @@ class GridWidget:
                 x += self._col_gap
         return max(0, x)
 
-    def _render_edit_overlay(self, start_row: int, content_w: int):
+    def _render_edit_overlay(
+        self,
+        start_row: int,
+        content_w: int,
+        viewport_y: int,
+        viewport_h: int,
+    ):
         if (
             not self._editing_active
             or self._edit_row is None
@@ -1006,9 +1035,9 @@ class GridWidget:
         ):
             return
         row_idx = int(self._edit_row)
-        if row_idx < start_row or row_idx >= start_row + self.window._ih:
+        if row_idx < start_row or row_idx >= start_row + viewport_h:
             return
-        y = row_idx - start_row
+        y = viewport_y + (row_idx - start_row)
         x = self._editable_start_x(row_idx)
         width = self._editable_input_width(row_idx)
         if width <= 0 or x >= content_w:
@@ -1040,7 +1069,7 @@ class GridWidget:
         self.ensure_selected_visible()
 
     def _scrollbar_metrics(self):
-        ih = self.window._ih
+        _y, ih = self._viewport_metrics()
         if (
             self._virtual_total is None
             or self._virtual_offset is None
@@ -1057,14 +1086,21 @@ class GridWidget:
             offset = total - page
         return total, offset, page
 
-    def _draw_grid_scrollbar(self, total: int, offset: int, page: int):
+    def _draw_grid_scrollbar(
+        self,
+        total: int,
+        offset: int,
+        page: int,
+        viewport_y: int,
+        viewport_h: int,
+    ):
         w = self.window
-        if w._iw <= 0 or w._ih <= 0:
+        if w._iw <= 0 or viewport_h <= 0:
             return
         if total <= page:
             return
 
-        track_h = w._ih
+        track_h = viewport_h
         max_offset = max(1, total - page)
         thumb_h = max(1, (track_h * page) // total)
         thumb_h = min(track_h, thumb_h)
@@ -1077,10 +1113,22 @@ class GridWidget:
         else:
             thumb_attr = Color.WINDOW_TITLE.attr()
         for y in range(track_h):
+            py = viewport_y + y
             if thumb_top <= y < thumb_top + thumb_h:
-                w.put_char(x, y, "#", attr=thumb_attr)
+                w.put_char(x, py, "#", attr=thumb_attr)
             else:
-                w.put_char(x, y, "|", attr=track_attr)
+                w.put_char(x, py, "|", attr=track_attr)
+
+    def _viewport_metrics(self):
+        ih_total = self.window._ih
+        if ih_total <= 0:
+            return 0, 0
+        y = max(0, min(int(self._viewport_y), ih_total))
+        if self._viewport_h is None:
+            h = ih_total - y
+        else:
+            h = max(0, min(int(self._viewport_h), ih_total - y))
+        return y, h
 
 
 class DialogWidget:

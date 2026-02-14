@@ -123,7 +123,8 @@ class App:
                 ):
                     self._status_updater.request_refresh()
                 await self.render_components(
-                    force_redraw=had_input or had_updates
+                    should_render=had_input or had_updates,
+                    force_redraw=False,
                 )
                 time_diff = time.time() - start_time
                 self.dispatch_action(
@@ -160,12 +161,12 @@ class App:
             changed = bool(await component.update()) or changed
         return changed
 
-    async def render_components(self, force_redraw=False):
-        if force_redraw:
+    async def render_components(self, should_render=False, force_redraw=False):
+        if should_render or force_redraw:
             for component in self._visual_components:
                 if not component.window.visible:
                     continue
-                component.render(force_redraw=True)
+                component.render(force_redraw=force_redraw)
         if force_redraw or any(
             component.window.visible
             and component.window._dirty

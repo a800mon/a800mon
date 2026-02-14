@@ -122,6 +122,9 @@ type GridWidget struct {
 	editingActive     bool
 	editRow           int
 	editValue         string
+	viewportSet       bool
+	viewportY         int
+	viewportH         int
 }
 
 type windowTag struct {
@@ -998,6 +1001,32 @@ func (g *GridWidget) SetSelectionEnabled(enabled bool) {
 	g.window.dirty = true
 }
 
+func (g *GridWidget) SetViewport(y int, height int) {
+	if y < 0 {
+		y = 0
+	}
+	if height < 0 {
+		height = 0
+	}
+	if g.viewportSet && g.viewportY == y && g.viewportH == height {
+		return
+	}
+	g.viewportSet = true
+	g.viewportY = y
+	g.viewportH = height
+	g.window.dirty = true
+}
+
+func (g *GridWidget) ClearViewport() {
+	if !g.viewportSet {
+		return
+	}
+	g.viewportSet = false
+	g.viewportY = 0
+	g.viewportH = 0
+	g.window.dirty = true
+}
+
 func (g *GridWidget) SetVirtualScroll(total, offset, page int) {
 	totalValue := total
 	if totalValue < 1 {
@@ -1081,7 +1110,8 @@ func (g *GridWidget) moveSelected(delta int) {
 }
 
 func (g *GridWidget) moveSelectedPage(direction int) {
-	page := max(1, g.window.ih)
+	_, viewportH := g.viewportMetrics()
+	page := max(1, viewportH)
 	g.moveSelected(direction * page)
 }
 
@@ -1124,7 +1154,8 @@ func (g *GridWidget) HandleNavigationInput(ch int) bool {
 		if g.selectionEnabled {
 			g.moveSelectedPage(-1)
 		} else {
-			g.SetOffset(g.offset - max(1, g.window.ih))
+			_, viewportH := g.viewportMetrics()
+			g.SetOffset(g.offset - max(1, viewportH))
 		}
 		return true
 	}
@@ -1132,7 +1163,8 @@ func (g *GridWidget) HandleNavigationInput(ch int) bool {
 		if g.selectionEnabled {
 			g.moveSelectedPage(1)
 		} else {
-			g.SetOffset(g.offset + max(1, g.window.ih))
+			_, viewportH := g.viewportMetrics()
+			g.SetOffset(g.offset + max(1, viewportH))
 		}
 		return true
 	}
@@ -1164,7 +1196,7 @@ func (g *GridWidget) HandleInput(ch int) bool {
 
 func (g *GridWidget) Render() {
 	w := g.window
-	ih := w.ih
+	viewportY, ih := g.viewportMetrics()
 	if ih <= 0 {
 		return
 	}
@@ -1208,7 +1240,7 @@ func (g *GridWidget) Render() {
 					text = cutTo(text, cut)
 				}
 				if text != "" {
-					w.Cursor(x, drawn)
+					w.Cursor(x, viewportY+drawn)
 					w.Print(text, g.cellAttr(colIdx, rowIdx)|rowAttr, false)
 					x += runeLen(text)
 				}
@@ -1216,28 +1248,30 @@ func (g *GridWidget) Render() {
 			if colIdx < colCount-1 && g.colGap > 0 && x < contentW {
 				gap := min(g.colGap, contentW-x)
 				if gap > 0 {
-					w.Cursor(x, drawn)
+					w.Cursor(x, viewportY+drawn)
 					w.Print(strings.Repeat(" ", gap), rowAttr, false)
 					x += gap
 				}
 			}
 		}
 		if x < contentW {
-			w.Cursor(x, drawn)
+			w.Cursor(x, viewportY+drawn)
 			w.Print(strings.Repeat(" ", contentW-x), rowAttr, false)
 		}
-		w.Cursor(contentW, drawn)
+		w.Cursor(contentW, viewportY+drawn)
 		w.ClearToEOL(false)
 		drawn++
 	}
 	if drawn < ih {
-		w.Cursor(0, drawn)
-		w.ClearToBottom()
+		for y := viewportY + drawn; y < viewportY+ih; y++ {
+			w.Cursor(0, y)
+			w.ClearToEOL(false)
+		}
 	}
 	if showScrollbar {
-		g.drawGridScrollbar(total, scrollOffset, scrollPage)
+		g.drawGridScrollbar(total, scrollOffset, scrollPage, viewportY, ih)
 	}
-	g.renderEditOverlay(start, contentW)
+	g.renderEditOverlay(start, contentW, viewportY, ih)
 }
 
 func (g *GridWidget) rebuildRows() {
@@ -1395,15 +1429,15 @@ func (g *GridWidget) handleEditInput(ch int) bool {
 	return true
 }
 
-func (g *GridWidget) renderEditOverlay(startRow int, contentW int) {
+func (g *GridWidget) renderEditOverlay(startRow int, contentW int, viewportY int, viewportH int) {
 	if !g.editingActive || !g.editableSet {
 		return
 	}
 	rowIdx := g.editRow
-	if rowIdx < startRow || rowIdx >= startRow+g.window.ih {
+	if rowIdx < startRow || rowIdx >= startRow+viewportH {
 		return
 	}
-	y := rowIdx - startRow
+	y := viewportY + (rowIdx - startRow)
 	x := g.editableStartX(rowIdx)
 	width := g.editableInputWidth(rowIdx)
 	if width <= 0 || x >= contentW {
@@ -1423,15 +1457,15 @@ func (g *GridWidget) renderEditOverlay(startRow int, contentW int) {
 	g.window.Cursor(x+cursorX, y)
 }
 
-func (g *GridWidget) drawGridScrollbar(total, offset, page int) {
+func (g *GridWidget) drawGridScrollbar(total, offset, page int, viewportY int, viewportH int) {
 	w := g.window
-	if w.iw <= 0 || w.ih <= 0 {
+	if w.iw <= 0 || viewportH <= 0 {
 		return
 	}
 	if total <= page {
 		return
 	}
-	trackH := w.ih
+	trackH := viewportH
 	maxOffset := max(1, total-page)
 	thumbH := max(1, (trackH*page)/total)
 	if thumbH > trackH {
@@ -1451,13 +1485,13 @@ func (g *GridWidget) drawGridScrollbar(total, offset, page int) {
 			ch = "#"
 			attr = thumbAttr
 		}
-		w.Cursor(x, y)
+		w.Cursor(x, viewportY+y)
 		w.Print(ch, attr, false)
 	}
 }
 
 func (g *GridWidget) scrollbarMetrics() (int, int, int) {
-	ih := g.window.ih
+	_, ih := g.viewportMetrics()
 	page := max(1, ih)
 	if g.virtualSet {
 		total := g.virtualTotal
@@ -1494,7 +1528,8 @@ func (g *GridWidget) scrollbarMetrics() (int, int, int) {
 }
 
 func (g *GridWidget) maxOffset() int {
-	return max(0, len(g.rows)-g.window.ih)
+	_, ih := g.viewportMetrics()
+	return max(0, len(g.rows)-ih)
 }
 
 func (g *GridWidget) clampState() {
@@ -1537,7 +1572,8 @@ func (g *GridWidget) clampState() {
 }
 
 func (g *GridWidget) ensureRowVisible(idx int) {
-	if g.window.ih <= 0 || len(g.rows) <= 0 {
+	_, ih := g.viewportMetrics()
+	if ih <= 0 || len(g.rows) <= 0 {
 		return
 	}
 	row := idx
@@ -1552,11 +1588,37 @@ func (g *GridWidget) ensureRowVisible(idx int) {
 		g.window.dirty = true
 		return
 	}
-	maxVisible := g.offset + g.window.ih - 1
+	maxVisible := g.offset + ih - 1
 	if row > maxVisible {
-		g.offset = row - g.window.ih + 1
+		g.offset = row - ih + 1
 		g.window.dirty = true
 	}
+}
+
+func (g *GridWidget) viewportMetrics() (int, int) {
+	ihTotal := g.window.ih
+	if ihTotal <= 0 {
+		return 0, 0
+	}
+	if !g.viewportSet {
+		return 0, ihTotal
+	}
+	y := g.viewportY
+	if y < 0 {
+		y = 0
+	}
+	if y > ihTotal {
+		y = ihTotal
+	}
+	h := g.viewportH
+	maxH := ihTotal - y
+	if h < 0 {
+		h = 0
+	}
+	if h > maxH {
+		h = maxH
+	}
+	return y, h
 }
 
 func (w *Window) ClearToBottom() {

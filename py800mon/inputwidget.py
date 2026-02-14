@@ -1,7 +1,6 @@
 import curses
 
-from .actions import Actions
-from .app import Component, VisualComponent
+from .app import VisualComponent
 from .memory import parse_hex_u16
 from .ui import Color
 
@@ -50,35 +49,40 @@ class InputWidget(VisualComponent):
     def _to_value(self):
         return self._buffer
 
-    def set_buffer(self, value: str) -> bool:
+    def set_buffer(self, value: str) -> None:
         text = str(value)
         if self.max_length is not None:
             text = text[: self.max_length]
         if text == self._buffer:
-            return False
+            return
         self._buffer = text
         self.emit_change()
-        return True
 
-    def append_char(self, ch: int) -> bool:
+    def _append_char(self, ch: int) -> None:
         if ch < 0 or ch > 255:
-            return False
+            return
         char = chr(ch)
         char = self._normalize_char(char)
         if not self._is_char_allowed(char):
-            return False
+            return
         if self.max_length is not None and len(self._buffer) >= self.max_length:
-            return False
+            return
         self._buffer += char
         self.emit_change()
-        return True
 
-    def backspace(self) -> bool:
+    def _backspace(self) -> None:
         if not self._buffer:
-            return False
+            return
         self._buffer = self._buffer[:-1]
         self.emit_change()
-        return True
+
+    def handle_key(self, ch: int) -> bool:
+        if ch in (curses.KEY_BACKSPACE, 127, 8):
+            self._backspace()
+            return True
+        before = self._buffer
+        self._append_char(ch)
+        return self._buffer != before
 
     def emit_change(self):
         if self.on_change is None:
@@ -129,78 +133,3 @@ class AddressInputWidget(InputWidget):
         self.window.print(text, attr=attr)
         self.window.fill_to_eol(attr=attr)
         self.window.cursor = (4, 0)
-
-
-class InputWidgetManager(Component):
-    def __init__(self, rebuild_screen):
-        super().__init__()
-        self._rebuild_screen = rebuild_screen
-        self._active_widget = None
-        self._snapshot = ""
-        self._replace_on_next_input = False
-
-    def open(self, widget: InputWidget, initial_buffer: str):
-        self._active_widget = widget
-        self._snapshot = str(initial_buffer)
-        self._replace_on_next_input = True
-        widget.activate(initial_buffer)
-        self.app.dispatch_action(Actions.SET_INPUT_FOCUS, self.handle_input)
-        widget.window.visible = True
-        try:
-            curses.curs_set(1)
-        except curses.error:
-            pass
-        self._rebuild_screen()
-
-    def _close(self):
-        if self._active_widget is None:
-            return
-        self.app.dispatch_action(Actions.SET_INPUT_FOCUS, None)
-        self._active_widget.window.visible = False
-        self._active_widget.deactivate()
-        self._active_widget = None
-        self._snapshot = ""
-        self._replace_on_next_input = False
-        try:
-            curses.curs_set(0)
-        except curses.error:
-            pass
-        self._rebuild_screen()
-
-    def _commit(self):
-        if self._active_widget is None:
-            return
-        self._active_widget.emit_enter()
-        self._close()
-
-    def _cancel(self):
-        if self._active_widget is None:
-            return
-        self._active_widget.set_buffer(self._snapshot)
-        self._close()
-
-    def handle_input(self, ch):
-        if self._active_widget is None:
-            return False
-
-        if ch == 27:
-            self._cancel()
-            return True
-
-        if ch in (10, 13, curses.KEY_ENTER):
-            self._commit()
-            return True
-
-        if ch in (curses.KEY_BACKSPACE, 127, 8):
-            self._replace_on_next_input = False
-            self._active_widget.backspace()
-            return True
-
-        if self._replace_on_next_input:
-            self._active_widget.set_buffer("")
-            self._replace_on_next_input = False
-
-        if self._active_widget.append_char(ch):
-            return True
-
-        return False

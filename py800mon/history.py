@@ -48,9 +48,6 @@ class HistoryViewer(VisualRpcComponent):
             return False
 
     def render(self, force_redraw=False):
-        self._render_grid()
-
-    def _render_grid(self):
         next_pc = state.cpu.pc & 0xFFFF
         next_bytes = self._next_opbytes if self._next_pc == next_pc else b""
         next_ins = self._format_disasm_cached(next_pc, next_bytes)
