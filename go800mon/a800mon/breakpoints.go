@@ -213,7 +213,7 @@ func (v *BreakpointsViewer) HandleInput(ch int) bool {
 		}
 		return !(result == DialogInputNone)
 	}
-	if ch == int('/') {
+	if ch == '/' {
 		v.openInput("")
 		return true
 	}
@@ -224,11 +224,11 @@ func (v *BreakpointsViewer) HandleInput(ch int) bool {
 		v.queueDeleteSelected()
 		return true
 	}
-	if ch == int('c') || ch == int('C') {
+	if ch == 'c' || ch == 'C' {
 		v.clearDialog.Activate("Clear all breakpoints?", "YES")
 		return true
 	}
-	if ch == int(' ') || ch == int('e') || ch == int('E') {
+	if ch == ' ' || ch == 'e' || ch == 'E' {
 		enabled := !v.enabled
 		v.pendingEnabled = &enabled
 		return true

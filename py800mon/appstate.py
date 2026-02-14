@@ -66,7 +66,7 @@ class StateStore:
         self._s.disassembly_enabled = enabled
 
     def set_disassembly_addr(self, addr: int):
-        self._s.disassembly_addr = int(addr) & 0xFFFF
+        self._s.disassembly_addr = addr & 0xFFFF
 
     def set_breakpoints_supported(self, enabled: bool):
         self._s.breakpoints_supported = bool(enabled)

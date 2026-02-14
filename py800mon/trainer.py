@@ -1,9 +1,9 @@
 class Trainer:
     def __init__(self, start: int, end: int, value: int | None = None):
-        self.start_addr = int(start) & 0xFFFF
-        self.end_addr = int(end) & 0xFFFF
+        self.start_addr = start & 0xFFFF
+        self.end_addr = end & 0xFFFF
         self.length = (self.end_addr - self.start_addr) + 1
-        self.value = None if value is None else (int(value) & 0xFF)
+        self.value = None if value is None else (value & 0xFF)
         self.snapshot = b""
         self.candidates = []
         self._reader = None
@@ -13,7 +13,7 @@ class Trainer:
 
     def start(self, value: int | None = None):
         if value is not None:
-            self.value = int(value) & 0xFF
+            self.value = value & 0xFF
         if self.value is None:
             raise ValueError("Missing trainer start value.")
         current = self._read()
@@ -24,7 +24,7 @@ class Trainer:
 
     def changed(self, value: int):
         current = self._read()
-        target = int(value) & 0xFF
+        target = value & 0xFF
         self.candidates = [
             idx
             for idx in self.candidates

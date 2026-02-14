@@ -59,7 +59,7 @@ class Shortcut:
             self.key = _normalize_key(int(key))
         self.label = label
         self.callback = callback
-        self.visible_in_global_bar = bool(visible_in_global_bar)
+        self.visible_in_global_bar = visible_in_global_bar
 
     def key_as_text(self):
         return key_as_text(self.key)

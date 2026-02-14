@@ -37,7 +37,7 @@ class InputWidget(VisualComponent):
         self._buffer = ""
 
     def set_invalid(self, invalid: bool):
-        self.invalid = bool(invalid)
+        self.invalid = invalid
 
     def _normalize_char(self, ch: str) -> str:
         return ch

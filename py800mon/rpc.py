@@ -188,7 +188,7 @@ class RpcClient:
     async def read_display_list(self, start_addr: int | None = None):
         payload = None
         if start_addr is not None:
-            payload = struct.pack("<H", int(start_addr) & 0xFFFF)
+            payload = struct.pack("<H", start_addr & 0xFFFF)
         return await self.call(Command.DLIST_DUMP, payload)
 
     async def breakpoint_clear(self):
@@ -216,7 +216,7 @@ class RpcClient:
 
     async def breakpoint_delete_clause(self, clause_index: int):
         await self.call(
-            Command.BP_DELETE_CLAUSE, struct.pack("<H", int(clause_index) & 0xFFFF)
+            Command.BP_DELETE_CLAUSE, struct.pack("<H", clause_index & 0xFFFF)
         )
 
     async def breakpoint_set_enabled(self, enabled: bool):

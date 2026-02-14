@@ -220,7 +220,6 @@ func RunMonitor(ctx context.Context, socketPath string) error {
 	app := NewApp(screen, dispatcher, statusUpdater, 20)
 	breakpointsWindowUpdater := NewBreakpointsWindowUpdater(app, screen, wbreakpoints)
 
-	buildShortcuts(shortcuts, dispatcher, screen, wdlist, whistory, wscreen, wwatch, wbreakpoints, wdisasm, app, disassemblyView)
 	inputProcessor := NewShortcutsComponent(shortcuts)
 
 	app.AddComponent(dispatcher)
@@ -236,6 +235,8 @@ func RunMonitor(ctx context.Context, socketPath string) error {
 	app.AddComponent(displayList)
 	app.AddComponent(screenInspector)
 	app.AddComponent(historyView)
+
+	buildShortcuts(shortcuts, dispatcher, screen, wdlist, whistory, wscreen, wwatch, wbreakpoints, wdisasm, app, disassemblyView)
 
 	return app.Loop(ctx)
 }
@@ -273,9 +274,9 @@ func buildShortcuts(shortcuts *ShortcutManager, dispatcher *ActionDispatcher, sc
 	_ = debug.Add(enterShutdown)
 
 	shutdown := NewShortcutLayer("SHUTDOWN", ColorAppModeShutdown)
-	_ = shutdown.Add(action(int('c'), "Cold start", ActionColdStart))
-	_ = shutdown.Add(action(int('w'), "Warm start", ActionWarmStart))
-	_ = shutdown.Add(action(int('t'), "Terminate", ActionTerminate))
+	_ = shutdown.Add(action('c', "Cold start", ActionColdStart))
+	_ = shutdown.Add(action('w', "Warm start", ActionWarmStart))
+	_ = shutdown.Add(action('t', "Terminate", ActionTerminate))
 	_ = shutdown.Add(exitShutdown)
 
 	_ = shortcuts.Add(AppModeNormal, normal)
@@ -296,17 +297,17 @@ func buildShortcuts(shortcuts *ShortcutManager, dispatcher *ActionDispatcher, sc
 		screen.Focus(wdisasm)
 	}
 
-	wdlist.AddHotkey(int('l'), "DisplayList", func() { screen.Focus(wdlist) }, false)
-	whistory.AddHotkey(int('h'), "History", func() { screen.Focus(whistory) }, false)
-	wscreen.AddHotkey(int('s'), "Screen Buffer", func() { screen.Focus(wscreen) }, false)
-	wwatch.AddHotkey(int('w'), "Watchers", func() { screen.Focus(wwatch) }, false)
+	wdlist.AddHotkey('l', "DisplayList", func() { screen.Focus(wdlist) }, false)
+	whistory.AddHotkey('h', "History", func() { screen.Focus(whistory) }, false)
+	wscreen.AddHotkey('s', "Screen Buffer", func() { screen.Focus(wscreen) }, false)
+	wwatch.AddHotkey('w', "Watchers", func() { screen.Focus(wwatch) }, false)
 	wbreakpoints.AddHotkey(
-		int('b'),
+		'b',
 		"Breakpoints",
 		func() { screen.Focus(wbreakpoints) },
 		false,
 	)
-	wdisasm.AddHotkey(int('d'), "Disassembly", toggleDisasm, false)
+	wdisasm.AddHotkey('d', "Disassembly", toggleDisasm, false)
 	nextWindow := NewShortcut(9, "Next window", screen.FocusNext)
 	nextWindow.VisibleInGlobalBar = false
 	_ = shortcuts.AddGlobal(nextWindow)
@@ -314,5 +315,5 @@ func buildShortcuts(shortcuts *ShortcutManager, dispatcher *ActionDispatcher, sc
 	prevWindow.VisibleInGlobalBar = false
 	_ = shortcuts.AddGlobal(prevWindow)
 	_ = shortcuts.AddGlobal(action(KeyF(9), "Freeze", ActionToggleFreeze))
-	_ = shortcuts.AddGlobal(action(int('q'), "Quit", ActionQuit))
+	_ = shortcuts.AddGlobal(action('q', "Quit", ActionQuit))
 }

@@ -22,7 +22,7 @@ class HistoryViewer(VisualRpcComponent):
             attr_callback=self._argument_attr,
         )
         self.grid.add_column("comment", width=0, attr=Color.COMMENT.attr())
-        self._reverse_order = bool(reverse_order)
+        self._reverse_order = reverse_order
         self._entries = []
         self._can_disasm = True
         self._next_pc = None

@@ -147,7 +147,7 @@ func (v *WatchersViewer) Render(_force bool) {
 }
 
 func (v *WatchersViewer) HandleInput(ch int) bool {
-	if ch == int('/') {
+	if ch == '/' {
 		v.inputActive = true
 		v.searchInput.Activate("")
 		v.clearPending()

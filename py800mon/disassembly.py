@@ -216,7 +216,7 @@ class DisassemblyViewer(VisualRpcComponent):
         return 0xFFFF
 
     def _manual_set_addr(self, addr: int, reset_selection: bool = True):
-        v = int(addr) & 0xFFFF
+        v = addr & 0xFFFF
         self._set_follow(False)
         self._current_addr = v
         if reset_selection:
@@ -353,7 +353,7 @@ class DisassemblyViewer(VisualRpcComponent):
         addr, payload = self._pending_write
         self._pending_write = None
         try:
-            await self.rpc.write_memory(int(addr) & 0xFFFF, bytes(payload))
+            await self.rpc.write_memory(addr & 0xFFFF, bytes(payload))
         except RpcException:
             return
         self._last_addr = None
@@ -450,7 +450,7 @@ class DisassemblyViewer(VisualRpcComponent):
     def _find_row_by_addr(self, addr: int | None) -> int | None:
         if addr is None:
             return None
-        target = int(addr) & 0xFFFF
+        target = addr & 0xFFFF
         for idx, ins in enumerate(self._lines):
             if (int(ins.addr) & 0xFFFF) == target:
                 return idx
@@ -609,7 +609,7 @@ class DisassemblyViewer(VisualRpcComponent):
         return True
 
     def _set_follow(self, enabled: bool):
-        self._follow = bool(enabled)
+        self._follow = enabled
         self.window.set_tag_active(FOLLOW_TAG_ID, self._follow)
 
     def _opcode_cells(self, raw: bytes):

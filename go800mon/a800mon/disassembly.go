@@ -328,10 +328,10 @@ func (d *DisassemblyViewer) HandleInput(ch int) bool {
 	}
 
 	lower := ch
-	if ch >= int('A') && ch <= int('Z') {
+	if ch >= 'A' && ch <= 'Z' {
 		lower = ch + 32
 	}
-	if ch == int(' ') || lower == int('f') {
+	if ch == ' ' || lower == 'f' {
 		d.setFollow(!d.follow)
 		return true
 	}
@@ -390,7 +390,7 @@ func (d *DisassemblyViewer) HandleInput(ch int) bool {
 	if ch == 10 || ch == 13 || ch == KeyEnter() {
 		return d.openEditInput()
 	}
-	if ch != int('/') {
+	if ch != '/' {
 		return false
 	}
 	addr := st.CPU.PC

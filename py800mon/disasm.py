@@ -49,7 +49,7 @@ def assemble_6502_one(addr: int, statement: str) -> bytes:
     if not text:
         raise SyntaxError("Empty instruction")
     assembler = _get_assembler()
-    data = assembler.assemble(text, pc=int(addr) & 0xFFFF)
+    data = assembler.assemble(text, pc=addr & 0xFFFF)
     if not data:
         raise SyntaxError("Assembly produced no bytes")
     return bytes(int(v) & 0xFF for v in data)
