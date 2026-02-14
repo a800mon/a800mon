@@ -44,6 +44,9 @@ This repository contains `a800mon`, a curses-based monitor UI and CLI for Atari8
 
 ## Code Style and Conventions
 - **Coding standards compliance**: follow `CODING_STANDARDS.md` for every change.
+- **Strict approval gate**: do not change any file unless the operator explicitly confirms the exact change scope first.
+- **No unapproved edits**: if confirmation is missing or ambiguous, stop and ask; do not proceed with assumptions.
+- **Mandatory rigor**: apply this approval rule rigorously on every task, without exceptions.
 - **Decision rule**: if request scope/intent is ambiguous or there is more than one valid design path, ask the operator for a decision before implementing.
 - **No autonomy drift**: do not take autonomous architectural/product decisions without explicit operator direction (unwanted autonomy is treated as a failure).
 - **Execution honesty**: do not claim a change was done unless it is actually present in code.

@@ -3,10 +3,10 @@ package main
 import (
 	"os"
 
-	"go800mon/a800mon"
+	"go800mon/a800mon/cli"
 	_ "go800mon/a800mon/monitor"
 )
 
 func main() {
-	os.Exit(a800mon.Main(os.Args[1:]))
+	os.Exit(cli.Main(os.Args[1:]))
 }
